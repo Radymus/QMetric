@@ -6,7 +6,7 @@ Created on Wed Jan 29 18:58:08 2014
 """
 import argparse
 from GitData import GitData
-from sw_quality import ProjectQuality
+from SWQuality import ProjectQuality
 
 class GetParameters(object):
     """
