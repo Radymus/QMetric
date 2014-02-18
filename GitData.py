@@ -9,11 +9,11 @@ from gittle import Gittle, InvalidRemoteUrl
 import re
 import logging
 import datetime
-import json
+#import json
 
 class GitData(object):
-    """ This class is for getting contribution, users
-	and other data from Git repository.
+    """ This class is for getting contribution, users and other data from Git
+    repository.
     """
     def __init__(self, git_path):
         self.__tmp_repository = "/tmp/tmp_repository_"
@@ -21,10 +21,11 @@ class GitData(object):
         self._data_frame = None
         self._commits_dict = {}
         self.git_repository = git_path
-        git_url = re.compile(\
-        "(git://github.com/|https://github.com/|git@github.com:)(.*)(\.git)")
+        str_url = r"(.+:)(.*)(\.git)"
+        git_url = re.compile(str_url)
         is_url = git_url.search(git_path)
-        if is_url.group(3) is None:
+        if is_url is None:
+            print "Must end .git i will add manualy"
             self.git_repository += ".git"
         try:
             Gittle.clone(self.git_repository, self.__tmp_repository)
@@ -38,9 +39,9 @@ class GitData(object):
         return self.__tmp_repository
 
     def __get_data_from_df(self, what, data_frame, index="name"):
-	""" This method just walk trought nested data frame and fill
+        """ This method just walk trought nested data frame and fill
 	    new data frame.
-	"""
+	  """
         tmp_val = [idx[index] for idx in data_frame[what]]
         self._data_frame[what] = tmp_val
 
@@ -103,16 +104,18 @@ class GitData(object):
             if self._commits_dict[idx]['files'] == files:
                 sha = idx
                 break
-        if sha is None: return None
+        if sha is None:
+            return None
         self.rollback(sha)
 
     def rollbakc_to_last_commit(self, files):
         """This method will make rollback to first commit."""
         sha = None
         for idx in self._commits_dict:
-            if self.__commits_dict[idx]['files'] == files:
+            if self._commits_dict[idx]['files'] == files:
                 sha = idx
-        if sha is None: return None
+        if sha is None:
+            return None
         self.rollback(sha)
     def find_list_files(self, sha):
         """This method returns list of files for current sha hash."""
@@ -122,7 +125,7 @@ class GitData(object):
             logging.warning("Wrong sha hash or there is no file.")
             return None
     def get_git_data(self):
-	""" This method returns data frame for project or None. """
+        """ This method returns data frame for project or None. """
         return self._data_frame
 #if __name__ == "__main__":
     #git_data = GitData("/tmp/temporary_git_repository")
