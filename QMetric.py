@@ -12,7 +12,18 @@ class GetParameters(object):
     """
         This class is for getting parameters from command line.
     """
+
+
     def __init__(self):
+        """Initialization and return arguments to instance."""
+        self.args = None
+        self.arg_parser()
+        #self.return_parameter()
+
+    def arg_parser(self):
+        """This method is for inicialization of argparser and add options.
+
+        """
         parser = argparse.ArgumentParser(description="This program is for\
         evaluation of quality of project based on hypothetical patterns of\
         quality. Like a first argument insert the Git repository which you\
@@ -57,13 +68,16 @@ class GetParameters(object):
                             setting all wanted parameters. Example of content\
                             the file: bug_w=4,result_file,warning_density=6")
         self.args = parser.parse_args()
-        self.return_parameter()
+        #self.return_parameter()
+
 
     def return_parameter(self):
         """ This method returns dictionary of parameters."""
         print self.args
         return self.args.path
+
+
 if __name__ == "__main__":
-    path = GetParameters().return_parameter()
-    git_data = GitData(path)
-    quality = ProjectQuality(git_data.return_repository_path(),git_data)
+    PATH = GetParameters().return_parameter()
+    GIT_DATA = GitData(PATH)
+    QUALITY = ProjectQuality(GIT_DATA.return_repository_path(), GIT_DATA)
