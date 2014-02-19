@@ -7,7 +7,7 @@ Created on Wed Jan 29 18:58:08 2014
 
 import pandas
 import os
-import pprint
+#import pprint
 #import logging
 import re
 
@@ -56,20 +56,20 @@ class ProjectQuality(object):
 
     def find_rating(self, file_html):
         """This method walk truth file and find rating."""
-        str_rating = r"Your code has been rated at ([-\d\.]+)/10 \
-(previous run: ([\d\.]+)/10, ([-\+\.\d]+)\)".replace("\n","")
+        str_rating = r"Your code has been rated at ([-\d\.]+)\/10 "
+        str_rating += r"\(previous run: ([\d\.]+)\/10.*"
         re_rating = re.compile(str_rating)
         tmp_rating = {}
-        with open(file_html) as fname:
+        with open("/tmp/tmp_pylint.html") as fname:
             for line in fname:
-                found_rating = re_rating.search(line)
-                if found_rating is not None:
+                frating = re_rating.search(line)
+                if frating is not None:
                     tmp_rating[file_html] = {}
-                    tmp_rating[file_html]["actual_rated"] = found_rating.group(1)
-                    tmp_rating[file_html]["previous_rated"] = \
-                    found_rating.group(2)
-                    tmp_rating[file_html]["change"] = found_rating.group(3)
+                    tmp_rating[file_html]["actual_rated"] = frating.group(1)
+                    tmp_rating[file_html]["previous_rated"] = frating.group(2)
+                   # tmp_rating[file_html]["change"] = found_rating.group(3)
         self.rating.append(tmp_rating)
+
 
     def evaluate(self, filee):
         """This method evaulation data"""
@@ -78,14 +78,14 @@ class ProjectQuality(object):
             for item in filee:
                 os.system("pylint --output=html "+item+" > \
              /tmp/tmp.html")
-                tmp_df = pandas.read_html("/tmp/tmp.html")
+                tmp_df = pandas.read_html("/tmp/tmp_pylint.html")
                 self.pylint_eval.append(tmp_df)
                 self.find_rating(item)
         else:
             os.system("pylint --rcfile=/tmp/rc --output=html "+filee+" > \
-             /tmp/tmp.html")
-            tmp_df = pandas.read_html("/tmp/tmp.html")
+             /tmp/tmp_pylint.html")
+            tmp_df = pandas.read_html("/tmp/tmp_pylint.html")
             self.pylint_eval.append(tmp_df)
             self.find_rating(filee)
-        pprint.pprint(tmp_df[0])
-
+        #pprint.pprint(tmp_df[0])
+        #pprint.ppirnt(self.rating)
