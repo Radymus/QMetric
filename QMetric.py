@@ -80,4 +80,5 @@ class GetParameters(object):
 if __name__ == "__main__":
     PATH = GetParameters().return_parameter()
     GIT_DATA = GitData(PATH)
-    QUALITY = ProjectQuality(GIT_DATA.return_repository_path(), GIT_DATA)
+    QUALITY = ProjectQuality(GIT_DATA.return_repository_path(),\
+    GIT_DATA.get_git_data())

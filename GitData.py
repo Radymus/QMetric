@@ -24,6 +24,7 @@ class GitData(object):
         str_url = r"(.+:)(.*)(\.git)"
         git_url = re.compile(str_url)
         is_url = git_url.search(git_path)
+        self.commits = {}
         if is_url is None:
             print "Must end .git i will add manualy"
             self.git_repository += ".git"
@@ -34,6 +35,7 @@ class GitData(object):
             return None
         self.__repository = Gittle(self.__tmp_repository)
         self.__fill_data()
+
     def return_repository_path(self):
         """ This method returns path to tmo repository"""
         return self.__tmp_repository
@@ -48,7 +50,7 @@ class GitData(object):
     def __fill_data(self):
         """ This method fill and parsing data to DataFrame."""
         tmp_df = pandas.DataFrame(self.__repository.commit_info())
-        file_pattern = re.compile(r'diff --git a/(.*) b/(.*)')
+        file_pattern = re.compile(r'diff --git [a/]?(\S+) [b/]?(\S+)')
         line_pattern = re.compile(r'@@ ([-\+\.,\d]+) ([-\.\+\,\d]+) @@')
         self._data_frame = pandas.DataFrame(tmp_df.sha, columns=["sha"])
         self._data_frame["description"] = tmp_df.description
@@ -61,25 +63,37 @@ class GitData(object):
         self.__get_data_from_df("committer", tmp_df)
         commit, files, lines = [], [], []
         index = 0
-        for idx in tmp_df.sha:
+        #try:
+        if 1:
+            array = self.__repository.branch_walker("master")
+            master_branch = [sha.id for sha in array]
+        #except:
+         #   logging.warning("This repository dont have master branch")
+          #  master_branch = tmp_df.sha
+        for idx in master_branch:
             self._commits_dict[idx] = {}
-            for indx in range(len(self.__repository.diff(idx))):
-                tmp_commit = self.__repository.diff(idx)[indx]["diff"]
-                commit.append(tmp_commit)
-                line = line_pattern.search(tmp_commit)
-                fil_e = file_pattern.search(tmp_commit)
-                if line is not None:
-                    lines.append(line.group(1))
-                else:
-                    lines.append("")
-                if fil_e is not None:
-                    files.append(fil_e.group(1))
-                else:
-                    files.append("")
-            if len(self.__repository.diff(idx)) <= 0:
+            rang = len(self.__repository.diff(idx))
+            if rang <= 0:
                 commit.append("")
                 lines.append("")
                 files.append("")
+                continue
+            for indx in range(rang):
+                tmp_commit = self.__repository.diff(idx)[indx]["diff"]
+                commit.append(tmp_commit)
+                #line = line_pattern.search(tmp_commit)
+                #fil_e = file_pattern.search(tmp_commit)
+                line = line_pattern.findall(tmp_commit)
+                fil_e = file_pattern.findall(tmp_commit)
+                if line is not None:
+                    lines.append(line)
+                else:
+                    lines.append("")
+                if fil_e is not None:
+                    files.append(fil_e)
+                else:
+                    files.append("")
+
             self._commits_dict[idx]["commit"] = {}
             self._commits_dict[idx]["commit"] = commit
             self._commits_dict[idx]["files"] = {}
@@ -92,11 +106,11 @@ class GitData(object):
             lines = []
             index += 1
         #print json.dumps(self._commits_dict)
-        #print self._commits_dict["9bcb9560d369d737f11da0b452a1617117b9fe59"]\
-        #    ["files"]
+        print self._commits_dict["070b1f59ea1db25fc10de927793194076c9a277a"]
     def rollback(self, sha):
         """This method will make rollback to version which is set by sha."""
         self.__repository.checkout_all(sha)
+
     def rollback_to_first_commit(self, files):
         """This method will make rollback to first commit."""
         sha = None
@@ -117,6 +131,7 @@ class GitData(object):
         if sha is None:
             return None
         self.rollback(sha)
+
     def find_list_files(self, sha):
         """This method returns list of files for current sha hash."""
         try:
@@ -124,9 +139,10 @@ class GitData(object):
         except BaseException:
             logging.warning("Wrong sha hash or there is no file.")
             return None
+
     def get_git_data(self):
         """ This method returns data frame for project or None. """
-        return self._data_frame
+        return (self._data_frame, self._commits_dict)
 #if __name__ == "__main__":
     #git_data = GitData("/tmp/temporary_git_repository")
     #df = git_data.data_frame_project()

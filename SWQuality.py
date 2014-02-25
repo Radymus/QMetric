@@ -7,7 +7,7 @@ Created on Wed Jan 29 18:58:08 2014
 
 import pandas
 import os
-#import pprint
+import pprint
 #import logging
 import re
 
@@ -25,7 +25,8 @@ class ProjectQuality(object):
             for pylint.
         """
         self._path = path
-        self.subver_data = subversion_data
+        self.subver_data, self.commits = subversion_data
+        pprint.pprint(self.commits)
         self.return_data = None
         #test for existion rcfile for pylint
         if not os.path.exists("/tmp/rc"):
