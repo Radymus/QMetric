@@ -100,13 +100,24 @@ class GitData(object):
             self._commits_dict[idx]["files"] = files
             self._commits_dict[idx]["lines"] = {}
             self._commits_dict[idx]["lines"] = lines
-            self._commits_dict[idx]["author"] = tmp_df["author"][index]["name"]
+            self._commits_dict[idx]["author"] = self.find_author_by_sha(idx)
             commit = []
             files = []
             lines = []
             index += 1
         #print json.dumps(self._commits_dict)
-        print self._commits_dict["070b1f59ea1db25fc10de927793194076c9a277a"]
+       # print self._commits_dict["070b1f59ea1db25fc10de927793194076c9a277a"]
+    def find_author_by_sha(self, sha):
+        """This method finds the author by sha in dataFrame. If not found
+           return None.
+        """
+        index = self._data_frame[self._data_frame.sha == sha].index
+        try:
+            #print self._data_frame.author[index].values
+            return self._data_frame.author[index].values[0]
+        except IndexError:
+            logging.warning("Sha is not in data frame.")
+        return None
     def rollback(self, sha):
         """This method will make rollback to version which is set by sha."""
         self.__repository.checkout_all(sha)
