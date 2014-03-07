@@ -36,6 +36,7 @@ class GitData(object):
               }]
         self.commit_rating = pandas.DataFrame(tmp_dict)
         self.comm_list = []
+        self.files = {}
         #self.commit_rating = pandas.DataFrame()
         self.git_repository = git_path
         str_url = r"(.+:)(.*)(\.git)"
@@ -97,7 +98,8 @@ class GitData(object):
             rang = len(diff)
             dict_params = {"idx":idx, "diff":diff, "range":rang, "index":index}
             app(dict_params)
-        self.walk_diff(list_params)
+        self.walk_diff2(list_params)
+        #self.filter_df()
             #self.walk_diff(dict_params)
             #pool = multiproc.Process(target=self.walk_diff, args=[dict_params])
             #pool.start()
@@ -108,7 +110,48 @@ class GitData(object):
             #thread = threading.Thread(target=self.walk_diff, args=[dict_params])
             #thread.start()
 
-
+    def walk_diff2(self, list_params):
+        str_pattern = r'@@ ([-\+\d]+),([-\+\d]+) ([-\+\d]+),([-\+\d]+) @@'
+        line_pattern = re.compile(str_pattern)
+        counter_lines = re.compile('\n(\-)(.*)')
+        #l_params = []
+        #append = l_params.append
+        for params in list_params:
+            for indx in range(params["range"]):
+                params["index"] += 1
+                tmp_commit = params["diff"][indx]["diff"]
+                line = line_pattern.findall(tmp_commit)
+                found_line = counter_lines.findall(tmp_commit)
+                counter = len(found_line)-1
+                fname = params["diff"][indx]["new"]["path"]
+                if fname == '':
+                    fname = params["diff"][indx]["old"]["path"]
+                for group in line:
+                     #       print group[1]
+                    start_line = abs(int(group[1]))
+                    list_lines = [num+start_line for num in range(counter)]
+                    df_lines = self.liness(list_lines, params["idx"])
+                    if self.files.has_key(fname):
+                        self.files[fname] = self.files[fname].append(df_lines)
+                    else:
+                        self.files[fname] = df_lines
+       # print self.files
+    def liness(self, list_lines, sha):
+        """Method return dataframe lines"""
+        tmp_list = []
+        append = tmp_list.append
+        for line in list_lines:
+            tmp_dict = {
+                      "line":line,
+                      "author":self.find_author_by_sha(sha),
+                      "count": 1,
+                      "range": 1,
+                      "rating": 1,
+                      "time":self.find_time_by_sha(sha),
+                      }
+            append(tmp_dict)
+        data_frame = pandas.DataFrame(tmp_list)
+        return data_frame
     def walk_diff(self, list_params):
         str_pattern = r'@@ ([-\+\d]+),([-\+\d]+) ([-\+\d]+),([-\+\d]+) @@'
         line_pattern = re.compile(str_pattern)
@@ -129,14 +172,30 @@ class GitData(object):
                      #       print group[1]
                     start_line = abs(int(group[1]))
                     list_lines = [num+start_line for num in range(counter)]
-                    dict_params = {"idx":params["idx"],
-                                   "index":params["index"],
-                                    "fname":fname,
-                                    "lines":list_lines
-                                }
+                   # dict_params = {"idx":params["idx"],
+                        #          "index":params["index"],
+                         #           "fname":fname,
+                         #           "lines":list_lines
+                         #       }
+                    tmp_dict = {
+                      "file":fname,
+                      "line":list_lines,
+                      "author":self.find_author_by_sha(params["idx"]),
+                      "sha":params["idx"],
+                      "count": 1,
+                      "range": 1,
+                      "rating": 1,
+                      "flag":False,
+                      "time":self.find_time_by_sha(params["idx"]),
+                      }
+                    self.comm_list.append(tmp_dict)
+        self.commit_rating = pandas.DataFrame(self.comm_list)
                    # append(dict_params)
-                    self.add_commits(dict_params)
+                   # self.add_commits(dict_params)
                 #self.add_commits(dict_params)
+    def filter_df(self):
+        """Method for filter data."""
+        print self.commit_rating.sort_index(by=["time"], ascending=False)
 
     def get_lines(self, list_params):
         """Try optimalized searchnig..."""
@@ -157,6 +216,7 @@ class GitData(object):
                   "range": rang,
                   "rating": rating,
                   "flag":flag,
+                  "time":self.find_time_by_sha(params["idx"]),
                   }
                 append(tmp_dict)
         self.commit_rating = pandas.DataFrame(list_df)
@@ -209,6 +269,7 @@ class GitData(object):
               "range": rang,
               "rating": rating,
               "flag":flag,
+              "time":self.find_time_by_sha(params["idx"]),
               }
             self.comm_list.append(tmp_dict)
 
