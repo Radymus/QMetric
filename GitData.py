@@ -39,19 +39,25 @@ class GitData(object):
         self.files = {}
         #self.commit_rating = pandas.DataFrame()
         self.git_repository = git_path
-        str_url = r"(.+:)(.*)(\.git)"
+        str_url = r'(git://github.com/|https://github.com/|git@github.com:)(.*)'#r"(.+:)(.*)(\.git)"
         git_url = re.compile(str_url)
         is_url = git_url.search(git_path)
         self.commits = {}
         if is_url is None:
-            print "Must end .git i will add manualy"
-            self.git_repository += ".git"
-        try:
-            Gittle.clone(self.git_repository, self.__tmp_repository)
-        except InvalidRemoteUrl:
-            logging.error("Could not clone repository!")
-            return None
-        self.__repository = Gittle(self.__tmp_repository)
+            self.__repository = Gittle(self.git_repository)
+            self.__tmp_repository =
+        else:
+            if self.git_repository.find(".git") < 0:
+                print "Must end .git i will add manualy"
+                self.git_repository += ".git"
+            try:
+                Gittle.clone(self.git_repository, self.__tmp_repository)
+            except InvalidRemoteUrl:
+                logging.error("Could not clone repository!")
+                #return None
+            except ValueError:
+                logging.error("Is not url.")
+            self.__repository = Gittle(self.__tmp_repository)
         self.__fill_data()
 
     def return_repository_path(self):
@@ -130,11 +136,12 @@ class GitData(object):
                      #       print group[1]
                     start_line = abs(int(group[1]))
                     list_lines = [num+start_line for num in range(counter)]
-                    df_lines = self.liness(list_lines, params["idx"])
-                    if self.files.has_key(fname):
-                        self.files[fname] = self.files[fname].append(df_lines)
-                    else:
-                        self.files[fname] = df_lines
+                    if len(list_lines) > 0:
+                        df_lines = self.liness(list_lines, params["idx"])
+                        if self.files.has_key(fname):
+                            self.files[fname] = self.files[fname].append(df_lines)
+                        else:
+                            self.files[fname] = df_lines
        # print self.files
     def liness(self, list_lines, sha):
         """Method return dataframe lines"""
@@ -144,12 +151,13 @@ class GitData(object):
             tmp_dict = {
                       "line":line,
                       "author":self.find_author_by_sha(sha),
-                      "count": 1,
+                      "sha":sha,
                       "range": 1,
                       "rating": 1,
                       "time":self.find_time_by_sha(sha),
                       }
             append(tmp_dict)
+       # print tmp_list
         data_frame = pandas.DataFrame(tmp_list)
         return data_frame
     def walk_diff(self, list_params):
@@ -386,7 +394,7 @@ class GitData(object):
 
     def get_git_data(self):
         """ This method returns data frame for project or None. """
-        return (self._data_frame, self.commit_rating)
+        return (self._data_frame, self.files)
 #if __name__ == "__main__":
     #git_data = GitData("/tmp/temporary_git_repository")
     #df = git_data.data_frame_project()
