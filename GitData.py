@@ -45,7 +45,7 @@ class GitData(object):
         self.commits = {}
         if is_url is None:
             self.__repository = Gittle(self.git_repository)
-            self.__tmp_repository =
+            self.__tmp_repository = self.git_repository
         else:
             if self.git_repository.find(".git") < 0:
                 print "Must end .git i will add manualy"
