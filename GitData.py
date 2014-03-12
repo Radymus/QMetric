@@ -8,38 +8,37 @@ import pandas
 from gittle import Gittle, InvalidRemoteUrl
 import re
 import logging
-import pprint
-import multiprocessing as multiproc
+#import pprint
+#import multiprocessing as multiproc
 import datetime
 #import json
+
 
 class GitData(object):
     """ This class is for getting contribution, users and other data from Git
     repository.
     """
+
     def __init__(self, git_path):
         self.__tmp_repository = "/tmp/tmp_repository_"
         self.__tmp_repository += (datetime.datetime.now().isoformat())
         self._data_frame = None
         self._commits_dict = {}
-        tmp_dict = [{
-              "file":"__init",
-              "line":-1,
-              "author":"__init",
-              "sha":"__init",
-              "count": -1,
-              "range": -1,
-              "rating": -4,
-              #"final_num_lines": final,
-             # "prev_num_lines": prev,
-              "flag":False,
-              }]
+        tmp_dict = [{"file": "__init",
+                     "line": -1,
+                     "author": "__init",
+                     "sha": "__init",
+                     "count": -1,
+                     "range": -1,
+                     "rating": -4,
+                     "flag": False}]
         self.commit_rating = pandas.DataFrame(tmp_dict)
         self.comm_list = []
         self.files = {}
         #self.commit_rating = pandas.DataFrame()
         self.git_repository = git_path
-        str_url = r'(git://github.com/|https://github.com/|git@github.com:)(.*)'#r"(.+:)(.*)(\.git)"
+        str_url = r'(git://github.com/|https://github.com/|git@github.com:)(.*)'
+        #r"(.+:)(.*)(\.git)"
         git_url = re.compile(str_url)
         is_url = git_url.search(git_path)
         self.commits = {}
@@ -66,15 +65,18 @@ class GitData(object):
 
     def __get_data_from_df(self, what, data_frame, index="name"):
         """ This method just walk trought nested data frame and fill
-	    new data frame.
-	  """
+        new data frame.
+        """
         tmp_val = [idx[index] for idx in data_frame[what]]
         self._data_frame[what] = tmp_val
+
     def __call__(self, dict_params):
         """Call method."""
         self.walk_diff(dict_params)
+
     def __del__(self):
         print "///// Destructor /////"
+
     def __fill_data(self):
         """ This method fill and parsing data to DataFrame."""
         tmp_df = pandas.DataFrame(self.__repository.commit_info())
@@ -83,8 +85,8 @@ class GitData(object):
         self._data_frame["message"] = tmp_df.message
         self._data_frame["summary"] = tmp_df.summary
         self._data_frame["time"] = tmp_df.time
-	#print tmp_df
-	#self._data_frame["timezone"] = tmp_df.timezone
+        #print tmp_df
+        #self._data_frame["timezone"] = tmp_df.timezone
         self.__get_data_from_df("author", tmp_df)
         self.__get_data_from_df("committer", tmp_df)
         commit, files, lines = [], [], []
@@ -102,18 +104,23 @@ class GitData(object):
             #self._commits_dict[idx] = {}
             diff = self.__repository.diff(idx)
             rang = len(diff)
-            dict_params = {"idx":idx, "diff":diff, "range":rang, "index":index}
+            dict_params = {"idx": idx,
+                           "diff": diff,
+                           "range": rang,
+                           "index": index}
             app(dict_params)
         self.walk_diff2(list_params)
         #self.filter_df()
             #self.walk_diff(dict_params)
-            #pool = multiproc.Process(target=self.walk_diff, args=[dict_params])
+            #pool = multiproc.Process(
+            #target=self.walk_diff, args=[dict_params])
             #pool.start()
             #pool.join()
            # list_params.append(dict_params)
             #num_proces += 1
             #self.walk_diff(dict_params)
-            #thread = threading.Thread(target=self.walk_diff, args=[dict_params])
+            #thread = threading.Thread(
+            #target=self.walk_diff, args=[dict_params])
             #thread.start()
 
     def walk_diff2(self, list_params):
@@ -128,38 +135,38 @@ class GitData(object):
                 tmp_commit = params["diff"][indx]["diff"]
                 line = line_pattern.findall(tmp_commit)
                 found_line = counter_lines.findall(tmp_commit)
-                counter = len(found_line)-1
+                counter = len(found_line) - 1
                 fname = params["diff"][indx]["new"]["path"]
                 if fname == '':
                     fname = params["diff"][indx]["old"]["path"]
                 for group in line:
                      #       print group[1]
                     start_line = abs(int(group[1]))
-                    list_lines = [num+start_line for num in range(counter)]
+                    list_lines = [num + start_line for num in range(counter)]
                     if len(list_lines) > 0:
                         df_lines = self.liness(list_lines, params["idx"])
-                        if self.files.has_key(fname):
+                        if fname in self.files:
                             self.files[fname] = self.files[fname].append(df_lines)
                         else:
                             self.files[fname] = df_lines
        # print self.files
+
     def liness(self, list_lines, sha):
         """Method return dataframe lines"""
         tmp_list = []
         append = tmp_list.append
         for line in list_lines:
-            tmp_dict = {
-                      "line":line,
-                      "author":self.find_author_by_sha(sha),
-                      "sha":sha,
-                      "range": 1,
-                      "rating": 1,
-                      "time":self.find_time_by_sha(sha),
-                      }
+            tmp_dict = {"line": line,
+                        "author": self.find_author_by_sha(sha),
+                        "sha": sha,
+                        "range": 1,
+                        "rating": 1,
+                        "time": self.find_time_by_sha(sha)}
             append(tmp_dict)
        # print tmp_list
         data_frame = pandas.DataFrame(tmp_list)
         return data_frame
+
     def walk_diff(self, list_params):
         str_pattern = r'@@ ([-\+\d]+),([-\+\d]+) ([-\+\d]+),([-\+\d]+) @@'
         line_pattern = re.compile(str_pattern)
@@ -172,35 +179,35 @@ class GitData(object):
                 tmp_commit = params["diff"][indx]["diff"]
                 line = line_pattern.findall(tmp_commit)
                 found_line = counter_lines.findall(tmp_commit)
-                counter = len(found_line)-1
+                counter = len(found_line) - 1
                 fname = params["diff"][indx]["new"]["path"]
                 if fname == '':
                     fname = params["diff"][indx]["old"]["path"]
                 for group in line:
                      #       print group[1]
                     start_line = abs(int(group[1]))
-                    list_lines = [num+start_line for num in range(counter)]
+                    list_lines = [num + start_line for num in range(counter)]
                    # dict_params = {"idx":params["idx"],
                         #          "index":params["index"],
                          #           "fname":fname,
                          #           "lines":list_lines
                          #       }
-                    tmp_dict = {
-                      "file":fname,
-                      "line":list_lines,
-                      "author":self.find_author_by_sha(params["idx"]),
-                      "sha":params["idx"],
-                      "count": 1,
-                      "range": 1,
-                      "rating": 1,
-                      "flag":False,
-                      "time":self.find_time_by_sha(params["idx"]),
-                      }
+                    ix = params["idx"]
+                    tmp_dict = {"file": fname,
+                                "line": list_lines,
+                                "author": self.find_author_by_sha(ix),
+                                "sha": params["idx"],
+                                "count": 1,
+                                "range": 1,
+                                "rating": 1,
+                                "flag": False,
+                                "time": self.find_time_by_sha(ix)}
                     self.comm_list.append(tmp_dict)
         self.commit_rating = pandas.DataFrame(self.comm_list)
                    # append(dict_params)
                    # self.add_commits(dict_params)
                 #self.add_commits(dict_params)
+
     def filter_df(self):
         """Method for filter data."""
         print self.commit_rating.sort_index(by=["time"], ascending=False)
@@ -215,17 +222,15 @@ class GitData(object):
         for params in list_params:
             for line in params["lines"]:
                 rang = params["index"]
-                tmp_dict = {
-                  "file":params["fname"],
-                  "line":line,
-                  "author":self.find_author_by_sha(params["idx"]),
-                  "sha":params["idx"],
-                  "count": count,
-                  "range": rang,
-                  "rating": rating,
-                  "flag":flag,
-                  "time":self.find_time_by_sha(params["idx"]),
-                  }
+                tmp_dict = {"file": params["fname"],
+                            "line": line,
+                            "author": self.find_author_by_sha(params["idx"]),
+                            "sha": params["idx"],
+                            "count": count,
+                            "range": rang,
+                            "rating": rating,
+                            "flag": flag,
+                            "time": self.find_time_by_sha(params["idx"])}
                 append(tmp_dict)
         self.commit_rating = pandas.DataFrame(list_df)
         length = len(self.commit_rating)
@@ -235,12 +240,13 @@ class GitData(object):
                         & (self.commit_rating.line == line)
                         & (self.commit_rating.count > 1)
                         & (self.commit_rating.index > index)].values[0][1]
-                _rang = self.commit_rating[(self.commit_rating.file == params["fname"])
+                _rang = self.commit_rating[
+                        (self.commit_rating.file == params["fname"])
                         & (self.commit_rating.line == line)
                         & (self.commit_rating.count > 1)
                         & (self.commit_rating.index > index)].values[0][5]
                 #print count, _rang
-                count = int(count)+1
+                count = int(count) + 1
             except IndexError:
                 count = 1
                 _rang = 0
@@ -268,17 +274,15 @@ class GitData(object):
                 rating = 1
                 flag = False
 
-            tmp_dict = {
-              "file":params["fname"],
-              "line":line,
-              "author":self.find_author_by_sha(params["idx"]),
-              "sha":params["idx"],
-              "count": count,
-              "range": rang,
-              "rating": rating,
-              "flag":flag,
-              "time":self.find_time_by_sha(params["idx"]),
-              }
+            tmp_dict = {"file": params["fname"],
+                        "line": line,
+                        "author": self.find_author_by_sha(params["idx"]),
+                        "sha": params["idx"],
+                        "count": count,
+                        "range": rang,
+                        "rating": rating,
+                        "flag": flag,
+                        "time": self.find_time_by_sha(params["idx"])}
             self.comm_list.append(tmp_dict)
 
     def add_commits(self, params):
@@ -361,6 +365,7 @@ class GitData(object):
 
     def rollback(self, sha):
         """This method will make rollback to version which is set by sha."""
+        #print "rollback sha %s" % sha
         self.__repository.checkout_all(sha)
 
     def rollback_to_first_commit(self, files):
