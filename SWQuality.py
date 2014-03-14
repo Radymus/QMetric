@@ -48,32 +48,44 @@ class ProjectQuality(object):
     def get_structure(self):
         """This method create dictionary of files in the project."""
         dirpaths, dirnames, files = [], [], []
+        #out = multiproc.Queue()
+        #chunksize = multiproc.cpu_count()
+        #procs = []
+       # lock = multiproc.Lock()
         for dirpath, dirname, filee in os.walk(self._path):
             if filee != []:
                 for fil in filee:
                     if re.search(r".*\.py", fil) is not None:
                         self.quality["files"].append(filee)
                         self.quality["paths"].append(dirpath)
-                        #pool = multiproc.Process(
-                        #target=self.eval_file_in_history,
-                        #args=[dirpath + "/" + fil])
+                      #  pool = multiproc.Process(
+                      #  target=self.eval_file_in_history,
+                       # args=(dirpath + "/" + fil, lock)).start()
+                        #procs.append(pool)
                         #pool.start()
+                        #pool.start()
+                       # pool.close()
                         #pool.join()
                         #self.evaluate(dirpath+"/"+fil)
                         self.eval_file_in_history(dirpath + "/" + fil)
             dirpaths.append(dirpath)
             dirnames.append(dirname)
             files.append(filee)
-
+        #resultdic = {}
+        #for i in range(chunksize):
+        #    resultdic.update(out.get())
+        #for p in procs:
+        #    p.join()
+        #return resultdic
     def find_rating(self, file_html, sha):
         """This method walk truth file and find rating."""
         str_rating = r"Your code has been rated at ([-\d\.]+)\/10 "
         str_rating += r"\(previous run: ([\d\.]+)\/10.*"
         re_rating = re.compile(str_rating)
         tmp_rating = {}
-        fil = file_html.split(self._path + "/")
-        #print self.git_data.find_time_by_sha(sha)
-        with open("/tmp/tmp_pylint.html") as fname:
+        #print self.git_data.find_time_by_sha(sha)   
+        fn = file_html.replace("/", "_")
+        with open("/tmp/tmp_pylint_%s.html" %(fn)) as fname:
             for line in fname:
                 frating = re_rating.search(line)
                 if frating is not None:
@@ -83,11 +95,11 @@ class ProjectQuality(object):
                     tmp_rating["sha"] = sha
                     #tmp_rating[file_html]["change"] = found_rating.group(3)
         #self.rating.append(tmp_rating)
-                    if fil[1] in self.pylint_rating:
-                        self.pylint_rating[fil[1]].append(tmp_rating)
+                    if file_html in self.pylint_rating:
+                        self.pylint_rating[file_html].append(tmp_rating)
                     else:
-                        self.pylint_rating[fil[1]] = []
-                        self.pylint_rating[fil[1]].append(tmp_rating)
+                        self.pylint_rating[file_html] = []
+                        self.pylint_rating[file_html].append(tmp_rating)
 
     def get_file(self, filee):
         """This method returns list of sha for file from df."""
@@ -104,6 +116,7 @@ class ProjectQuality(object):
 
     def eval_file_in_history(self, filee):
         """This method take file and eval this file by history of commits."""
+      #  lock.acquire()        
         files = self.get_file(filee)
         #print files
         if files != []:
@@ -113,15 +126,19 @@ class ProjectQuality(object):
             self.evaluate(filee, list_sha)
         else:
             self.evaluate(filee, [])
-
+       # lock.release()
+        #out.put(self.pylint_rating)
+        
     def eval_pylint(self, filee, sha):
         """Call pylint for file"""
+        fil = filee.split(self._path + "/")
+        fname = fil[1].replace("/", "_")
         os.system("pylint --rcfile=/tmp/rc --output=html " + filee + " > \
-             /tmp/tmp_pylint.html")
+             /tmp/tmp_pylint_%s.html" % (fname))
         try:
-            tmp_df = pandas.read_html("/tmp/tmp_pylint.html")
+            tmp_df = pandas.read_html("/tmp/tmp_pylint_%s.html" % (fname))
             self.pylint_eval.append(tmp_df)
-            self.find_rating(filee, sha)
+            self.find_rating(fil[1], sha)
         except ImportError:
             logging.warning("No html file")
 
