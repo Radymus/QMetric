@@ -58,9 +58,20 @@ class GitData(object):
                 logging.error("Is not url.")
             self.__repository = Gittle(self.__tmp_repository)
         self.__fill_data()
+       # print self.files
+
+    def eval_commits(self):
+        """This method walk trought saved items and evaluate rating commits."""
+        for inx in self.files.keys():
+            group = self.files[inx].groupby(["author", "line"])
+            #print group.groups
+            for key, value in group.groups.iteritems():
+                if len(value) > 1:
+                    print self.files[inx].ix[value[0]]
+                    #print #group.groups[key]
 
     def return_repository_path(self):
-        """ This method returns path to tmo repository"""
+        """ This method returns path to tmp repository"""
         return self.__tmp_repository
 
     def __get_data_from_df(self, what, data_frame, index="name"):
@@ -146,7 +157,7 @@ class GitData(object):
                     if len(list_lines) > 0:
                         df_lines = self.liness(list_lines, params["idx"])
                         if fname in self.files:
-                            self.files[fname] = self.files[fname].append(df_lines)
+                            self.files[fname] = self.files[fname].append(df_lines, ignore_index=True)
                         else:
                             self.files[fname] = df_lines
        # print self.files
