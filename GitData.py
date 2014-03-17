@@ -4,9 +4,10 @@ Created on Wed Jan 29 18:58:08 2014
 
 @author: Radim Spigel
 """
-import pandas
+from pandas import DataFrame
 from gittle import Gittle, InvalidRemoteUrl
 import re
+import os
 import logging
 #import pprint
 #import multiprocessing as multiproc
@@ -25,6 +26,7 @@ class GitData(object):
         self._data_frame = None
         self._commits_dict = {}
         self.files = {}
+        self.line_counter = {}
         self.git_repository = git_path
         str_url = r'(git://github.com/|https://github.com/|git@github.com:)(.*)'
         #r"(.+:)(.*)(\.git)"
@@ -49,6 +51,7 @@ class GitData(object):
         self.__fill_data()
        # print self.files
         self.eval_commits()
+        #print self.files["setup.py"]["modification"]
         
     def eval_commits(self):
         """This method walk trought saved items and evaluate rating commits."""
@@ -60,7 +63,7 @@ class GitData(object):
                     self.modificate_rating(inx, value)
                    # print inx, value
                     #print #group.groups[key]
-       # print self.files["setup.py"]["rating"]
+      #  print self.files["setup.py"]["rating"]
     def modificate_rating(self, fname, index):
         """Modificate rating of commmit."""
         if fname.find(".py") < 0:
@@ -71,16 +74,28 @@ class GitData(object):
             ackt_range = df_file.ix[index[idx]]["range"]
             next_range = df_file.ix[index[idx + 1]]["range"]
             rang =  next_range - ackt_range
-            if rang <= 20 and rang > 1:
+            try:
+                fmod = float(df_file.ix[index[idx]]["removed"]) \
+                / float(df_file.ix[index[idx]]["num_lines"])
+                smod = float(df_file.ix[index[idx + 1]]["removed"]) \
+                / float(df_file.ix[index[idx + 1]]["num_lines"])
+            except ZeroDivisionError:
+                smod, fmod = 0, 0
+            smod += fmod
+            #print fname, smod
+            if rang <= 20 and rang > 1 and smod < 0.35:
                 rating = -3
-            elif rang > 20 and rang <= 30:
+            elif rang > 20 and rang <= 30 and smod < 0.35:
                 rating = -2
-            elif rang > 30 and rang <= 40:
+            elif rang > 30 and rang <= 40 and smod < 0.35:
                 rating = -1
-            elif rang > 40 and rang <= 50:
+            elif rang > 40 and rang <= 50 and smod < 0.35:
                 rating = 0
             else:
                 rating = 1
+                if smod >= 0.35:
+                    smod = 0.0
+            self.files[fname].ix[index[idx + 1], "modification"] = smod
             self.files[fname].ix[index[idx + 1], "rating"] = rating
         #print self.files[fname]["rating"]
     def return_repository_path(self):
@@ -99,8 +114,8 @@ class GitData(object):
 
     def __fill_data(self):
         """ This method fill and parsing data to DataFrame."""
-        tmp_df = pandas.DataFrame(self.__repository.commit_info())
-        self._data_frame = pandas.DataFrame(tmp_df.sha, columns=["sha"])
+        tmp_df = DataFrame(self.__repository.commit_info())
+        self._data_frame = DataFrame(tmp_df.sha, columns=["sha"])
         self._data_frame["description"] = tmp_df.description
         self._data_frame["message"] = tmp_df.message
         self._data_frame["summary"] = tmp_df.summary
@@ -137,6 +152,9 @@ class GitData(object):
         str_pattern = r'@@ ([-\+\d]+),([-\+\d]+) ([-\+\d]+),([-\+\d]+) @@'
         line_pattern = re.compile(str_pattern)
         counter_lines = re.compile(r'\n(\-)(.*)')
+        add_lines = re.compile(r'\n(\+)(.*)')
+        #blank_lines = re.compile(r'\n( )(.*)')
+
         #l_params = []
         #append = l_params.append
         for params in list_params:
@@ -145,26 +163,42 @@ class GitData(object):
                 tmp_commit = params["diff"][indx]["diff"]
                 line = line_pattern.findall(tmp_commit)
                 found_line = counter_lines.findall(tmp_commit)
+                add_line = add_lines.findall(tmp_commit)
                 counter = len(found_line) - 1
+                added = len(add_line)  - 1 
+                removed = (counter - added)
                 fname = params["diff"][indx]["new"]["path"]
                 if fname == '' or fname == None:
                     fname = params["diff"][indx]["old"]["path"]
-
+                lcount = self.count_lines(fname)
+               # lines_count -= removed
                 for group in line:
                      #       print group[1]
                     start_line = abs(int(group[1]))
                     list_lines = [num + start_line for num in range(counter)]
                     if len(list_lines) > 0:
                         df_lines = self.get_lines(list_lines, params["idx"], \
-                                            params["index"])
+                                            params["index"], removed, lcount)
                         if fname in self.files:
                             self.files[fname] = self.files[fname]\
                                         .append(df_lines, ignore_index=True)
                         else:
                             self.files[fname] = df_lines
        # print self.files
-
-    def get_lines(self, list_lines, sha, index):
+    def count_lines(self, fname):
+        """This method count lines in file"""
+        if not os.path.exists(self.__tmp_repository + "/" + fname):
+            return 0
+        if fname not in self.line_counter:
+            count = 0
+            with open(self.__tmp_repository + "/" + fname) as filer:
+                for ix in filer: count += 1 
+            self.line_counter[fname] = count
+        else:
+            return self.line_counter[fname]
+        return count
+        
+    def get_lines(self, list_lines, sha, index, removed, line_count):
         """Method return dataframe lines"""
         tmp_list = []
         append = tmp_list.append
@@ -174,10 +208,13 @@ class GitData(object):
                         "sha": sha,
                         "range": index,
                         "rating": 1,
+                        "num_lines": line_count,
+                        "removed": abs(removed),
+                        "modification": 0.0,
                         "time": self.find_time_by_sha(sha)}
             append(tmp_dict)
        # print tmp_list
-        data_frame = pandas.DataFrame(tmp_list)
+        data_frame = DataFrame(tmp_list)
         return data_frame
 
     def find_author_by_sha(self, sha):
