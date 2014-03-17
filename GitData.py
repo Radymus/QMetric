@@ -24,18 +24,7 @@ class GitData(object):
         self.__tmp_repository += (datetime.datetime.now().isoformat())
         self._data_frame = None
         self._commits_dict = {}
-        tmp_dict = [{"file": "__init",
-                     "line": -1,
-                     "author": "__init",
-                     "sha": "__init",
-                     "count": -1,
-                     "range": -1,
-                     "rating": -4,
-                     "flag": False}]
-        self.commit_rating = pandas.DataFrame(tmp_dict)
-        self.comm_list = []
         self.files = {}
-        #self.commit_rating = pandas.DataFrame()
         self.git_repository = git_path
         str_url = r'(git://github.com/|https://github.com/|git@github.com:)(.*)'
         #r"(.+:)(.*)(\.git)"
@@ -59,17 +48,41 @@ class GitData(object):
             self.__repository = Gittle(self.__tmp_repository)
         self.__fill_data()
        # print self.files
-
+        self.eval_commits()
+        
     def eval_commits(self):
         """This method walk trought saved items and evaluate rating commits."""
         for inx in self.files.keys():
             group = self.files[inx].groupby(["author", "line"])
             #print group.groups
-            for key, value in group.groups.iteritems():
+            for value in group.groups.itervalues():
                 if len(value) > 1:
-                    print self.files[inx].ix[value[0]]
+                    self.modificate_rating(inx, value)
+                   # print inx, value
                     #print #group.groups[key]
-
+       # print self.files["setup.py"]["rating"]
+    def modificate_rating(self, fname, index):
+        """Modificate rating of commmit."""
+        if fname.find(".py") < 0:
+            return
+        df_file = self.files[fname]
+        length = len(index)
+        for idx in range(length-1):
+            ackt_range = df_file.ix[index[idx]]["range"]
+            next_range = df_file.ix[index[idx + 1]]["range"]
+            rang =  next_range - ackt_range
+            if rang <= 20 and rang > 1:
+                rating = -3
+            elif rang > 20 and rang <= 30:
+                rating = -2
+            elif rang > 30 and rang <= 40:
+                rating = -1
+            elif rang > 40 and rang <= 50:
+                rating = 0
+            else:
+                rating = 1
+            self.files[fname].ix[index[idx + 1], "rating"] = rating
+        #print self.files[fname]["rating"]
     def return_repository_path(self):
         """ This method returns path to tmp repository"""
         return self.__tmp_repository
@@ -80,10 +93,6 @@ class GitData(object):
         """
         tmp_val = [idx[index] for idx in data_frame[what]]
         self._data_frame[what] = tmp_val
-
-    def __call__(self, dict_params):
-        """Call method."""
-        self.walk_diff(dict_params)
 
     def __del__(self):
         print "///// Destructor /////"
@@ -100,12 +109,11 @@ class GitData(object):
         #self._data_frame["timezone"] = tmp_df.timezone
         self.__get_data_from_df("author", tmp_df)
         self.__get_data_from_df("committer", tmp_df)
-        commit, files, lines = [], [], []
         index = 0
         try:
             array = self.__repository.branch_walker("master")
             master_branch = [sha.id for sha in array]
-        except:
+        except ValueError:
             logging.warning("This repository dont have master branch")
             master_branch = tmp_df.sha
         list_params = []
@@ -120,49 +128,43 @@ class GitData(object):
                            "range": rang,
                            "index": index}
             app(dict_params)
-        self.walk_diff2(list_params)
-        #self.filter_df()
-            #self.walk_diff(dict_params)
-            #pool = multiproc.Process(
-            #target=self.walk_diff, args=[dict_params])
-            #pool.start()
-            #pool.join()
-           # list_params.append(dict_params)
-            #num_proces += 1
-            #self.walk_diff(dict_params)
-            #thread = threading.Thread(
-            #target=self.walk_diff, args=[dict_params])
-            #thread.start()
+            index += 1
+        self.walk_diff(list_params)
 
-    def walk_diff2(self, list_params):
+
+    def walk_diff(self, list_params):
+        """Method for walk trought diff."""
         str_pattern = r'@@ ([-\+\d]+),([-\+\d]+) ([-\+\d]+),([-\+\d]+) @@'
         line_pattern = re.compile(str_pattern)
-        counter_lines = re.compile('\n(\-)(.*)')
+        counter_lines = re.compile(r'\n(\-)(.*)')
         #l_params = []
         #append = l_params.append
         for params in list_params:
             for indx in range(params["range"]):
-                params["index"] += 1
+                #params["index"] += 1
                 tmp_commit = params["diff"][indx]["diff"]
                 line = line_pattern.findall(tmp_commit)
                 found_line = counter_lines.findall(tmp_commit)
                 counter = len(found_line) - 1
                 fname = params["diff"][indx]["new"]["path"]
-                if fname == '':
+                if fname == '' or fname == None:
                     fname = params["diff"][indx]["old"]["path"]
+
                 for group in line:
                      #       print group[1]
                     start_line = abs(int(group[1]))
                     list_lines = [num + start_line for num in range(counter)]
                     if len(list_lines) > 0:
-                        df_lines = self.liness(list_lines, params["idx"])
+                        df_lines = self.get_lines(list_lines, params["idx"], \
+                                            params["index"])
                         if fname in self.files:
-                            self.files[fname] = self.files[fname].append(df_lines, ignore_index=True)
+                            self.files[fname] = self.files[fname]\
+                                        .append(df_lines, ignore_index=True)
                         else:
                             self.files[fname] = df_lines
        # print self.files
 
-    def liness(self, list_lines, sha):
+    def get_lines(self, list_lines, sha, index):
         """Method return dataframe lines"""
         tmp_list = []
         append = tmp_list.append
@@ -170,185 +172,13 @@ class GitData(object):
             tmp_dict = {"line": line,
                         "author": self.find_author_by_sha(sha),
                         "sha": sha,
-                        "range": 1,
+                        "range": index,
                         "rating": 1,
                         "time": self.find_time_by_sha(sha)}
             append(tmp_dict)
        # print tmp_list
         data_frame = pandas.DataFrame(tmp_list)
         return data_frame
-
-    def walk_diff(self, list_params):
-        str_pattern = r'@@ ([-\+\d]+),([-\+\d]+) ([-\+\d]+),([-\+\d]+) @@'
-        line_pattern = re.compile(str_pattern)
-        counter_lines = re.compile('\n(\-| )(.*)')
-        #l_params = []
-        #append = l_params.append
-        for params in list_params:
-            for indx in range(params["range"]):
-                params["index"] += 1
-                tmp_commit = params["diff"][indx]["diff"]
-                line = line_pattern.findall(tmp_commit)
-                found_line = counter_lines.findall(tmp_commit)
-                counter = len(found_line) - 1
-                fname = params["diff"][indx]["new"]["path"]
-                if fname == '':
-                    fname = params["diff"][indx]["old"]["path"]
-                for group in line:
-                     #       print group[1]
-                    start_line = abs(int(group[1]))
-                    list_lines = [num + start_line for num in range(counter)]
-                   # dict_params = {"idx":params["idx"],
-                        #          "index":params["index"],
-                         #           "fname":fname,
-                         #           "lines":list_lines
-                         #       }
-                    ix = params["idx"]
-                    tmp_dict = {"file": fname,
-                                "line": list_lines,
-                                "author": self.find_author_by_sha(ix),
-                                "sha": params["idx"],
-                                "count": 1,
-                                "range": 1,
-                                "rating": 1,
-                                "flag": False,
-                                "time": self.find_time_by_sha(ix)}
-                    self.comm_list.append(tmp_dict)
-        self.commit_rating = pandas.DataFrame(self.comm_list)
-                   # append(dict_params)
-                   # self.add_commits(dict_params)
-                #self.add_commits(dict_params)
-
-    def filter_df(self):
-        """Method for filter data."""
-        print self.commit_rating.sort_index(by=["time"], ascending=False)
-
-    def get_lines(self, list_params):
-        """Try optimalized searchnig..."""
-        rating = 1
-        flag = False
-        count = 1
-        list_df = []
-        append = list_df.append
-        for params in list_params:
-            for line in params["lines"]:
-                rang = params["index"]
-                tmp_dict = {"file": params["fname"],
-                            "line": line,
-                            "author": self.find_author_by_sha(params["idx"]),
-                            "sha": params["idx"],
-                            "count": count,
-                            "range": rang,
-                            "rating": rating,
-                            "flag": flag,
-                            "time": self.find_time_by_sha(params["idx"])}
-                append(tmp_dict)
-        self.commit_rating = pandas.DataFrame(list_df)
-        length = len(self.commit_rating)
-        for index in range(length):
-            try:
-                count = self.commit_rating[(self.commit_rating.file == params["fname"])
-                        & (self.commit_rating.line == line)
-                        & (self.commit_rating.count > 1)
-                        & (self.commit_rating.index > index)].values[0][1]
-                _rang = self.commit_rating[
-                        (self.commit_rating.file == params["fname"])
-                        & (self.commit_rating.line == line)
-                        & (self.commit_rating.count > 1)
-                        & (self.commit_rating.index > index)].values[0][5]
-                #print count, _rang
-                count = int(count) + 1
-            except IndexError:
-                count = 1
-                _rang = 0
-            try:
-                flag = self.commit_rating[(self.commit_rating.file == params["fname"])
-                       & (self.commit_rating.line == line)
-                       & (self.commit_rating.sha == params["idx"])
-                       & (self.commit_rating.index > index)].values[0][3]#.values flag
-            except IndexError:
-                flag = False
-            rang = params["index"] - _rang
-            if rang <= 20 and rang > 1 and flag:
-                rating = -3
-                flag = True
-            elif rang > 20 and rang <= 30 and flag:
-                rating = -2
-                flag = True
-            elif rang > 30 and rang <= 40 and flag:
-                rating = -1
-                flag = True
-            elif rang > 40 and rang <= 50 and flag:
-                rating = 0
-                flag = False
-            else:
-                rating = 1
-                flag = False
-
-            tmp_dict = {"file": params["fname"],
-                        "line": line,
-                        "author": self.find_author_by_sha(params["idx"]),
-                        "sha": params["idx"],
-                        "count": count,
-                        "range": rang,
-                        "rating": rating,
-                        "flag": flag,
-                        "time": self.find_time_by_sha(params["idx"])}
-            self.comm_list.append(tmp_dict)
-
-    def add_commits(self, params):
-        """Method for evaluation the commits. Add one line to dataFrame.
-        """
-        #for params in list_params:
-        for line in params["lines"]:
-            try:
-                count = self.commit_rating[(self.commit_rating.file == params["fname"])
-                        & (self.commit_rating.line == line)
-                        & (self.commit_rating.count > 1)].values[0][1]
-                _rang = self.commit_rating[(self.commit_rating.file == params["fname"])
-                        & (self.commit_rating.line == line)
-                        & (self.commit_rating.count > 1)].values[0][5]
-                #print count, _rang
-                count = int(count)+1
-            except IndexError:
-                count = 1
-                _rang = 0
-            try:
-                flag = self.commit_rating[(self.commit_rating.file == params["fname"])
-                       & (self.commit_rating.line == line)
-                       & (self.commit_rating.sha == params["idx"])].values[0][3]#.values flag
-            except IndexError:
-                flag = False
-            rang = params["index"] - _rang
-            if rang <= 20 and rang > 1 and flag:
-                rating = -3
-                flag = True
-            elif rang > 20 and rang <= 30 and flag:
-                rating = -2
-                flag = True
-            elif rang > 30 and rang <= 40 and flag:
-                rating = -1
-                flag = True
-            elif rang > 40 and rang <= 50 and flag:
-                rating = 0
-                flag = False
-            else:
-                rating = 1
-                flag = False
-
-            tmp_dict = {
-              "file":params["fname"],
-              "line":line,
-              "author":self.find_author_by_sha(params["idx"]),
-              "sha":params["idx"],
-              "count": count,
-              "range": rang,
-              "rating": rating,
-              "flag":flag,
-              "timestamp":self.find_time_by_sha(params["idx"]),
-              }
-            #self.comm_list.append(tmp_dict)
-            self.commit_rating = self.commit_rating.append(tmp_dict, ignore_index=True)
 
     def find_author_by_sha(self, sha):
         """This method finds the author by sha in dataFrame. If not found
