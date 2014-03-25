@@ -41,9 +41,66 @@ class ProjectQuality(object):
         self.quality["paths"] = []
         self.pylint_rating = {}
         self.pylint_eval = []
-        self.rating = []
+        self.rating = {}
         self.get_structure()
-        pprint.pprint(self.pylint_rating)
+        #pprint.pprint(self.pylint_rating)
+        self.create_final_structure()
+        self.rate()
+        self.count_final_rating(dict(count_w=1, comm_w=1, avg_pylint_w=1, pylint_w=1))
+        pprint.pprint(self.rating)
+       # self.rate()
+    def create_final_structure(self):
+        authors = self.subver_data.groupby(["author"])
+        for author in authors.groups.keys():
+            self.rating[author] = {}
+            #if pylint rating was > then prev
+            self.rating[author]["pylint+"] = 0
+            #if pylint rating was < then prev
+            self.rating[author]["pylint-"] = 0
+            #most modified file
+            self.rating[author]["MMFile"] = ""
+            #count commits in MMFile
+            self.rating[author]["CCMMFile"] = 0
+            #avg of all average of commits
+            self.rating[author]["avg_count"] = 0
+            #count of all average of commits for prev avg_count
+            self.rating[author]["count_all_comm"] = 0
+            #mean of all rating of commits
+            self.rating[author]["avg_comm_rating"] = 0
+            #final rating
+            self.rating[author]["final_rating"] = 0
+
+    def count_final_rating(self, weight):
+        for author in self.rating.keys():
+            avg_pylint = (self.rating[author]["pylint+"]-self.rating[author]["pylint-"]) * weight["pylint_w"]
+            avg_count = self.rating[author]["avg_count"] * weight["count_w"]
+            avg_comm = self.rating[author]["avg_comm_rating"] * weight["comm_w"]
+            avg_pylint = avg_pylint * weight["avg_pylint_w"]
+            final = (avg_pylint + avg_count + avg_comm)/3
+            self.rating[author]["final_rating"] = final
+
+    def rate(self):
+        for fname in self.files.keys():
+            count = self.files[fname].groupby("author")
+            count_line = self.files[fname].groupby(["author", "line"])
+            for author in count_line.groups.keys():
+                self.rating[author[0]]["count_all_comm"] += 1
+                self.rating[author[0]]["avg_count"] +=  len(count_line.groups[author])
+            for author in count.groups.keys():
+                self.rating[author]["avg_count"] /= self.rating[author]["count_all_comm"]
+                if self.rating[author] < len(count.groups[author]):
+                    self.rating[author]["CCMMFile"] = len(count.groups[author])
+                    self.rating[author]["MMFile"] = fname
+                rat = self.rating[author]
+                rat["avg_comm_rating"] = rat[rat.author == author]["rating"].mean()
+
+            #shas = self.files[fname].groupby("sha")
+            for fil in self.pylint_rating[fname]:
+                author = self.git_data.find_author_by_sha(fil["sha"])
+                if fil["actual_rated"] < fil["previous_rated"]:
+                    self.rating[author]["pylint-"] += 1
+                elif fil["actual_rated"] > fil["previous_rated"]:
+                    self.rating[author]["pylint+"] += 1
 
     def get_structure(self):
         """This method create dictionary of files in the project."""
@@ -83,7 +140,7 @@ class ProjectQuality(object):
         str_rating += r"\(previous run: ([\d\.]+)\/10.*"
         re_rating = re.compile(str_rating)
         tmp_rating = {}
-        #print self.git_data.find_time_by_sha(sha)   
+        #print self.git_data.find_time_by_sha(sha)
         fn = file_html.replace("/", "_")
         with open("/tmp/tmp_pylint_%s.html" %(fn)) as fname:
             for line in fname:
@@ -116,7 +173,7 @@ class ProjectQuality(object):
 
     def eval_file_in_history(self, filee):
         """This method take file and eval this file by history of commits."""
-      #  lock.acquire()        
+      #  lock.acquire()
         files = self.get_file(filee)
         #print files
         if files != []:
@@ -128,7 +185,7 @@ class ProjectQuality(object):
             self.evaluate(filee, [])
        # lock.release()
         #out.put(self.pylint_rating)
-        
+
     def eval_pylint(self, filee, sha):
         """Call pylint for file"""
         fil = filee.split(self._path + "/")
