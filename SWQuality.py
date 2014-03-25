@@ -50,6 +50,7 @@ class ProjectQuality(object):
         pprint.pprint(self.rating)
        # self.rate()
     def create_final_structure(self):
+        """Creating of structure for authors."""
         authors = self.subver_data.groupby(["author"])
         for author in authors.groups.keys():
             self.rating[author] = {}
@@ -71,8 +72,10 @@ class ProjectQuality(object):
             self.rating[author]["final_rating"] = 0
 
     def count_final_rating(self, weight):
+        """Count final rating"""
         for author in self.rating.keys():
-            avg_pylint = (self.rating[author]["pylint+"]-self.rating[author]["pylint-"]) * weight["pylint_w"]
+            avg_pylint = (self.rating[author]["pylint+"]-self.rating[author]["pylint-"])
+            avg_pylint *= weight["pylint_w"]
             avg_count = self.rating[author]["avg_count"] * weight["count_w"]
             avg_comm = self.rating[author]["avg_comm_rating"] * weight["comm_w"]
             avg_pylint = avg_pylint * weight["avg_pylint_w"]
@@ -80,27 +83,33 @@ class ProjectQuality(object):
             self.rating[author]["final_rating"] = final
 
     def rate(self):
+        """This method rate all authors."""
         for fname in self.files.keys():
             count = self.files[fname].groupby("author")
             count_line = self.files[fname].groupby(["author", "line"])
             for author in count_line.groups.keys():
                 self.rating[author[0]]["count_all_comm"] += 1
-                self.rating[author[0]]["avg_count"] +=  len(count_line.groups[author])
+                self.rating[author[0]]["avg_count"] += len(count_line.groups[author])
             for author in count.groups.keys():
                 self.rating[author]["avg_count"] /= self.rating[author]["count_all_comm"]
                 if self.rating[author] < len(count.groups[author]):
                     self.rating[author]["CCMMFile"] = len(count.groups[author])
                     self.rating[author]["MMFile"] = fname
-                rat = self.rating[author]
+                rat = self.files[fname]
                 rat["avg_comm_rating"] = rat[rat.author == author]["rating"].mean()
 
             #shas = self.files[fname].groupby("sha")
-            for fil in self.pylint_rating[fname]:
-                author = self.git_data.find_author_by_sha(fil["sha"])
-                if fil["actual_rated"] < fil["previous_rated"]:
-                    self.rating[author]["pylint-"] += 1
-                elif fil["actual_rated"] > fil["previous_rated"]:
-                    self.rating[author]["pylint+"] += 1
+            try:
+                for fil in self.pylint_rating[fname]:
+                    print fil
+                for fil in self.pylint_rating[fname]:
+                    author = self.git_data.find_author_by_sha(fil["sha"])
+                    if fil["actual_rated"] < fil["previous_rated"]:
+                        self.rating[author]["pylint-"] += 1
+                    elif fil["actual_rated"] > fil["previous_rated"]:
+                        self.rating[author]["pylint+"] += 1
+            except KeyError:
+                logging.warning("not in pylint_rating %s" % (fil))
 
     def get_structure(self):
         """This method create dictionary of files in the project."""
@@ -141,8 +150,8 @@ class ProjectQuality(object):
         re_rating = re.compile(str_rating)
         tmp_rating = {}
         #print self.git_data.find_time_by_sha(sha)
-        fn = file_html.replace("/", "_")
-        with open("/tmp/tmp_pylint_%s.html" %(fn)) as fname:
+        fnm = file_html.replace("/", "_")
+        with open("/tmp/tmp_pylint_%s.html" %(fnm)) as fname:
             for line in fname:
                 frating = re_rating.search(line)
                 if frating is not None:
@@ -168,7 +177,7 @@ class ProjectQuality(object):
             files = self.files[fil[1]]["sha"].values
             return files
         except KeyError:
-            logging.warning("This file %s is not in dataframe." % (fil[1]))
+            #logging.warning("This file %s is not in dataframe." % (fil[1]))
             return []
 
     def eval_file_in_history(self, filee):
