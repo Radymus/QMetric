@@ -4,12 +4,13 @@ Created on Wed Jan 29 18:58:08 2014
 
 @author: Radim Spigel
 """
-
+from __future__ import division
 import pandas
 import os
 import pprint
 import logging
 import re
+
 #import multiprocessing as multiproc
 from sets import Set
 
@@ -63,13 +64,13 @@ class ProjectQuality(object):
             #count commits in MMFile
             self.rating[author]["CCMMFile"] = 0
             #avg of all average of commits
-            self.rating[author]["avg_count"] = 0
+            self.rating[author]["avg_count"] = 0.0
             #count of all average of commits for prev avg_count
             self.rating[author]["count_all_comm"] = 0
             #mean of all rating of commits
-            self.rating[author]["avg_comm_rating"] = 0
+            self.rating[author]["avg_comm_rating"] = 0.0
             #final rating
-            self.rating[author]["final_rating"] = 0
+            self.rating[author]["final_rating"] = 0.0
 
     def count_final_rating(self, weight):
         """Count final rating"""
@@ -88,11 +89,16 @@ class ProjectQuality(object):
             count = self.files[fname].groupby("author")
             count_line = self.files[fname].groupby(["author", "line"])
             for author in count_line.groups.keys():
+                #if len(count_line.groups[author]) > 0:
                 self.rating[author[0]]["count_all_comm"] += 1
-                self.rating[author[0]]["avg_count"] += len(count_line.groups[author])
+                c_line = len(count_line.groups[author])
+                count_ = len(count.groups[author[0]])
+               # print author[0], c_line, count_,float(c_line/count_)
+                self.rating[author[0]]["avg_count"] += float(c_line/count_)
+                #print self.rating[author[0]]["avg_count"]
             for author in count.groups.keys():
                 self.rating[author]["avg_count"] /= self.rating[author]["count_all_comm"]
-                if self.rating[author] < len(count.groups[author]):
+                if self.rating[author]["CCMMFile"] < len(count.groups[author]):
                     self.rating[author]["CCMMFile"] = len(count.groups[author])
                     self.rating[author]["MMFile"] = fname
                 rat = self.files[fname]
@@ -100,8 +106,8 @@ class ProjectQuality(object):
 
             #shas = self.files[fname].groupby("sha")
             try:
-                for fil in self.pylint_rating[fname]:
-                    print fil
+                #for fil in self.pylint_rating[fname]:
+                    #print fil
                 for fil in self.pylint_rating[fname]:
                     author = self.git_data.find_author_by_sha(fil["sha"])
                     if fil["actual_rated"] < fil["previous_rated"]:
@@ -109,7 +115,8 @@ class ProjectQuality(object):
                     elif fil["actual_rated"] > fil["previous_rated"]:
                         self.rating[author]["pylint+"] += 1
             except KeyError:
-                logging.warning("not in pylint_rating %s" % (fil))
+                logging.warning("not in pylint_rating")
+        print self.rating
 
     def get_structure(self):
         """This method create dictionary of files in the project."""
