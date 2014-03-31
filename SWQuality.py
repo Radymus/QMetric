@@ -47,7 +47,7 @@ class ProjectQuality(object):
         #pprint.pprint(self.pylint_rating)
         self.create_final_structure()
         self.rate()
-        self.count_final_rating(dict(count_w=1, comm_w=1, avg_pylint_w=1, pylint_w=1))
+        self.count_final_rating(dict(count_w=0.1, comm_w=0.1, avg_pylint_w=0.1, pylint_w=0.1))
         pprint.pprint(self.rating)
        # self.rate()
     def create_final_structure(self):
@@ -71,6 +71,8 @@ class ProjectQuality(object):
             self.rating[author]["avg_comm_rating"] = 0.0
             #final rating
             self.rating[author]["final_rating"] = 0.0
+            #list of ratings
+            self.rating[author]["pylint"] = []
 
     def count_final_rating(self, weight):
         """Count final rating"""
@@ -80,8 +82,14 @@ class ProjectQuality(object):
             avg_count = self.rating[author]["avg_count"] * weight["count_w"]
             avg_comm = self.rating[author]["avg_comm_rating"] * weight["comm_w"]
             avg_pylint = avg_pylint * weight["avg_pylint_w"]
-            final = (avg_pylint + avg_count + avg_comm)/3
-            self.rating[author]["final_rating"] = final
+            avg_list_pylint = sum(self.rating[author]["pylint"])
+            if len(self.rating[author]["pylint"]) > 0:
+                avg_list_pylint /= len(self.rating[author]["pylint"])
+            final = (avg_pylint + avg_count + avg_comm + avg_list_pylint) / 4
+            if (final*100) < 100.0:
+                self.rating[author]["final_rating"] = final*100
+            else:
+                self.rating[author]["final_rating"] = 100.0
 
     def rate(self):
         """This method rate all authors."""
@@ -110,13 +118,14 @@ class ProjectQuality(object):
                     #print fil
                 for fil in self.pylint_rating[fname]:
                     author = self.git_data.find_author_by_sha(fil["sha"])
+                    self.rating[author]["pylint"].append(float(fil["actual_rated"]))
                     if fil["actual_rated"] < fil["previous_rated"]:
                         self.rating[author]["pylint-"] += 1
                     elif fil["actual_rated"] > fil["previous_rated"]:
                         self.rating[author]["pylint+"] += 1
             except KeyError:
                 logging.warning("not in pylint_rating")
-        print self.rating
+        #print self.rating
 
     def get_structure(self):
         """This method create dictionary of files in the project."""
@@ -129,6 +138,7 @@ class ProjectQuality(object):
             if filee != []:
                 for fil in filee:
                     if re.search(r".*\.py", fil) is not None:
+                        #print fil
                         self.quality["files"].append(filee)
                         self.quality["paths"].append(dirpath)
                       #  pool = multiproc.Process(
