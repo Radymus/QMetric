@@ -38,7 +38,7 @@ class GitData(object):
             self.__tmp_repository = self.git_repository
         else:
             if self.git_repository.find(".git") < 0:
-                print "Must end .git i will add manualy"
+                logging.info("Must end .git i will add manualy")
                 self.git_repository += ".git"
             try:
                 Gittle.clone(self.git_repository, self.__tmp_repository)
@@ -52,9 +52,9 @@ class GitData(object):
        # print self.files
         self.eval_commits()
         #print self.files["setup.py"]["modification"]
-        
+
     def eval_commits(self):
-        """This method walk trought saved items and evaluate rating commits."""
+        """This method walk through saved items and evaluate rating commits."""
         for inx in self.files.keys():
             group = self.files[inx].groupby(["author", "line"])
             #print group.groups
@@ -64,8 +64,21 @@ class GitData(object):
                    # print inx, value
                     #print #group.groups[key]
       #  print self.files["setup.py"]["rating"]
-    def modificate_rating(self, fname, index):
-        """Modificate rating of commmit."""
+
+    def modificate_rating(self, fname, index, procent=0.35):
+        """In this method i will walk through every saved commited lines.
+        This data structure is
+        sha1: line1, range, removed, num_lines, modification, rating
+        sha1->line2, range, ...
+        sha2->line1, range, ...
+        etc.
+        Direction is from recent commit to first. If is modification one same
+        line in other commis i will evaluate how many commits was between them.
+        When ihad range between commits and file doesnt change more then
+        argument percent then i chose rating. After that, i change rating of
+        commit in DataFrame for file in dictionary of files.
+        """
+        logging.info("Start of evaulation of ratings for each commit.")
         if fname.find(".py") < 0:
             return
         df_file = self.files[fname]
@@ -83,21 +96,23 @@ class GitData(object):
                 smod, fmod = 0, 0
             smod += fmod
             #print fname, smod
-            if rang <= 20 and rang > 1 and smod < 0.35:
+            if rang <= 20 and rang > 1 and smod < procent:
                 rating = -3
-            elif rang > 20 and rang <= 30 and smod < 0.35:
+            elif rang > 20 and rang <= 30 and smod < procent:
                 rating = -2
-            elif rang > 30 and rang <= 40 and smod < 0.35:
+            elif rang > 30 and rang <= 40 and smod < procent:
                 rating = -1
-            elif rang > 40 and rang <= 50 and smod < 0.35:
+            elif rang > 40 and rang <= 50 and smod < procent:
                 rating = 0
             else:
                 rating = 1
-                if smod >= 0.35:
+                if smod >= procent:
                     smod = 0.0
             self.files[fname].ix[index[idx + 1], "modification"] = smod
             self.files[fname].ix[index[idx + 1], "rating"] = rating
         #print self.files[fname]["rating"]
+        logging.info("End of evaluation of ratings for every commit.")
+
     def return_repository_path(self):
         """ This method returns path to tmp repository"""
         return self.__tmp_repository
@@ -109,11 +124,9 @@ class GitData(object):
         tmp_val = [idx[index] for idx in data_frame[what]]
         self._data_frame[what] = tmp_val
 
-    def __del__(self):
-        print "///// Destructor /////"
-
     def __fill_data(self):
         """ This method fill and parsing data to DataFrame."""
+        logging.info("Filling data to _data_frame")
         tmp_df = DataFrame(self.__repository.commit_info())
         self._data_frame = DataFrame(tmp_df.sha, columns=["sha"])
         self._data_frame["description"] = tmp_df.description
@@ -134,21 +147,31 @@ class GitData(object):
         list_params = []
         app = list_params.append
        # num_proces = 0
+        logging.info("Go through master branch and using gittle.diff for \
+        getting diff output")
         for idx in master_branch:
             #self._commits_dict[idx] = {}
             diff = self.__repository.diff(idx)
             rang = len(diff)
-            dict_params = {"idx": idx,
-                           "diff": diff,
-                           "range": rang,
-                           "index": index}
-            app(dict_params)
+            app(dict(
+                    {"idx": idx,
+                     "diff": diff,
+                     "range": rang,
+                     "index": index}
+                ))
             index += 1
-        self.walk_diff(list_params)
+        self._trought_diff(list_params)
 
-
-    def walk_diff(self, list_params):
-        """Method for walk trought diff."""
+    def _trought_diff(self, list_params):
+        """
+        This method for walk through diff from gittle. Found removed lines,
+        added lines to file and make difference betwen. Thanks difference
+        betwen added and removed we get changed lines. In this method we call
+        method for counting lines in file that will be saved to DataFrame with
+        changed lines removed lines and sha thanks to method set_lines_df. I
+        want only removed lines for my algorithm because in method
+        modificate_rating i go through from recent  to first commit.
+        """
         str_pattern = r'@@ ([-\+\d]+),([-\+\d]+) ([-\+\d]+),([-\+\d]+) @@'
         line_pattern = re.compile(str_pattern)
         counter_lines = re.compile(r'\n(\-)(.*)')
@@ -162,29 +185,33 @@ class GitData(object):
                 #params["index"] += 1
                 tmp_commit = params["diff"][indx]["diff"]
                 line = line_pattern.findall(tmp_commit)
-                found_line = counter_lines.findall(tmp_commit)
+                removed_line = counter_lines.findall(tmp_commit)
                 add_line = add_lines.findall(tmp_commit)
-                counter = len(found_line) - 1
-                added = len(add_line)  - 1 
-                removed = (counter - added)
+                removed = len(removed_line) - 1
+                added = len(add_line)  - 1
+                change = (removed - added)
                 fname = params["diff"][indx]["new"]["path"]
                 if fname == '' or fname == None:
                     fname = params["diff"][indx]["old"]["path"]
+
+                if re.search(r".*\.py", fname) is None:
+                    continue
                 lcount = self.count_lines(fname)
                # lines_count -= removed
                 for group in line:
                      #       print group[1]
                     start_line = abs(int(group[1]))
-                    list_lines = [num + start_line for num in range(counter)]
+                    list_lines = [num + start_line for num in range(removed)]
                     if len(list_lines) > 0:
-                        df_lines = self.get_lines(list_lines, params["idx"], \
-                                            params["index"], removed, lcount)
+                        df_lines = self.set_lines_df(list_lines, params["idx"], \
+                                            params["index"], change, lcount)
                         if fname in self.files:
                             self.files[fname] = self.files[fname]\
                                         .append(df_lines, ignore_index=True)
                         else:
                             self.files[fname] = df_lines
-       # print self.files
+        logging.info("END of walking through the all diffs for this repo.")
+
     def count_lines(self, fname):
         """This method count lines in file"""
         if not os.path.exists(self.__tmp_repository + "/" + fname):
@@ -192,18 +219,19 @@ class GitData(object):
         if fname not in self.line_counter:
             count = 0
             with open(self.__tmp_repository + "/" + fname) as filer:
-                for ix in filer: count += 1 
+                for ix in filer: count += 1
             self.line_counter[fname] = count
         else:
             return self.line_counter[fname]
         return count
-        
-    def get_lines(self, list_lines, sha, index, removed, line_count):
+
+    def set_lines_df(self, list_lines, sha, index, removed, line_count):
         """Method return dataframe lines"""
         tmp_list = []
         append = tmp_list.append
         for line in list_lines:
-            tmp_dict = {"line": line,
+            append(dict(
+                        {"line": line,
                         "author": self.find_author_by_sha(sha),
                         "sha": sha,
                         "range": index,
@@ -211,8 +239,9 @@ class GitData(object):
                         "num_lines": line_count,
                         "removed": abs(removed),
                         "modification": 0.0,
-                        "time": self.find_time_by_sha(sha)}
-            append(tmp_dict)
+                        "time": self.find_time_by_sha(sha)
+                        }
+                     ))
        # print tmp_list
         data_frame = DataFrame(tmp_list)
         return data_frame
