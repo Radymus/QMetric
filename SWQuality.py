@@ -27,11 +27,9 @@ class ProjectQuality(object):
         """
         self._path = path
         self.git_data = subversion_data
-        print self.git_data
+        #print self.git_data
         self.subver_data, self.files = subversion_data.get_git_data()
-        #pprint.pprint(self.files)
-        #print self.files.keys()
-        #print self.files["gittle/utils/urls.py"]
+
         self.return_data = None
         #test for existion rcfile for pylint
         if not os.path.exists("/tmp/rc"):
@@ -49,7 +47,7 @@ class ProjectQuality(object):
         self.rate()
         self.count_final_rating(dict(count_w=0.1, comm_w=0.1, avg_pylint_w=0.1, pylint_w=0.1))
         pprint.pprint(self.rating)
-       # self.rate()
+
     def create_final_structure(self):
         """Creating of structure for authors."""
         authors = self.subver_data.groupby(["author"])
@@ -75,7 +73,13 @@ class ProjectQuality(object):
             self.rating[author]["pylint"] = []
 
     def count_final_rating(self, weight):
-        """Count final rating"""
+        """Count final rating. First i get difference between positive and
+        negative rating. Next i get average how many does contributor
+        change file/ count all commits to file.
+        Another variable is average ratings for commits what this author did
+        to file. After that i get average value for every pylint rating for
+        all files. Last is total rating which is mean value from this
+        variables. For each variables is set weight"""
         for author in self.rating.keys():
             avg_pylint = (self.rating[author]["pylint+"]-self.rating[author]["pylint-"])
             avg_pylint *= weight["pylint_w"]
@@ -92,7 +96,18 @@ class ProjectQuality(object):
                 self.rating[author]["final_rating"] = 100.0
 
     def rate(self):
-        """This method rate all authors."""
+        """
+        This method rate all authors. Main function in this method is iterate
+        for every lines which every contributor committed to current file. Has
+        some statistic variables. One is counter for counting how many commits
+        did to file each contributor. Next variable is sum of average how many
+        does contributor change file/ count all commits to file. Next variable
+        is most modified file and how many commits did contributor done to this
+        file. Another variable is mean value of ratings for every commit getting
+        in GitData.modificate_rating. Last variable is pylint negative or
+        positive result if author decreases pylint rating gets negative evaluate
+        if  author increase pylint rating gets positive else gets nothing.
+        """
         for fname in self.files.keys():
             count = self.files[fname].groupby("author")
             count_line = self.files[fname].groupby(["author", "line"])
@@ -130,38 +145,21 @@ class ProjectQuality(object):
     def get_structure(self):
         """This method create dictionary of files in the project."""
         dirpaths, dirnames, files = [], [], []
-        #out = multiproc.Queue()
-        #chunksize = multiproc.cpu_count()
-        #procs = []
-       # lock = multiproc.Lock()
         for dirpath, dirname, filee in os.walk(self._path):
             if filee != []:
                 for fil in filee:
                     if re.search(r".*\.py", fil) is not None:
-                        #print fil
                         self.quality["files"].append(filee)
                         self.quality["paths"].append(dirpath)
-                      #  pool = multiproc.Process(
-                      #  target=self.eval_file_in_history,
-                       # args=(dirpath + "/" + fil, lock)).start()
-                        #procs.append(pool)
-                        #pool.start()
-                        #pool.start()
-                       # pool.close()
-                        #pool.join()
-                        #self.evaluate(dirpath+"/"+fil)
                         self.eval_file_in_history(dirpath + "/" + fil)
             dirpaths.append(dirpath)
             dirnames.append(dirname)
             files.append(filee)
-        #resultdic = {}
-        #for i in range(chunksize):
-        #    resultdic.update(out.get())
-        #for p in procs:
-        #    p.join()
-        #return resultdic
+
     def find_rating(self, file_html, sha):
-        """This method walk truth file and find rating."""
+        """This method walk through file and find rating which is genereted
+        from pylint.
+        """
         str_rating = r"Your code has been rated at ([-\d\.]+)\/10 "
         str_rating += r"\(previous run: ([\d\.]+)\/10.*"
         re_rating = re.compile(str_rating)
@@ -198,7 +196,9 @@ class ProjectQuality(object):
             return []
 
     def eval_file_in_history(self, filee):
-        """This method take file and eval this file by history of commits."""
+        """This method take file and eval this file by history of commits
+        thanks to method evaluate.
+        """
       #  lock.acquire()
         files = self.get_file(filee)
         #print files
@@ -226,7 +226,9 @@ class ProjectQuality(object):
             logging.warning("No html file")
 
     def evaluate(self, filee, sha):
-        """This method evaulation data"""
+        """This method call rollback from GitData. This method returns data
+        to previous state. Direction is from recent to first commit.
+        """
         #print filee, sha
         if sha == []:
             self.eval_pylint(filee, '')
