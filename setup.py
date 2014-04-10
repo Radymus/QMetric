@@ -23,7 +23,7 @@ setup_kwargs = {
     'keywords': ['git', 'quality', 'python', 'gittle'],
     'version': version_string,
     'url': 'https://github.com/Radymus/QMetric',
-    'license': '',
+    'license': 'GPLv3',
     'author': "Radim Spigel",
     'author_email': 'radim.spigel@gmail.com',
     'long_description': description,
