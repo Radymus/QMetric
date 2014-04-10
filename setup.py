@@ -1,4 +1,8 @@
-#-*- coding: utf-8 -*-
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
+# Author: "Radim Spigel" <spigel@seznam.cz>
+
 """
 Created on Tue Apr  1 20:30:40 2014
 
@@ -9,30 +13,28 @@ from setuptools import setup
 
 version_string = '0.0.1'
 
+description = (
+    "This is project is for evaluate the hypothetical "
+    "quality of the projects written in python.")
+
 setup_kwargs = {
     'name': 'QMetric',
     'description': 'Evaluation the hypothetical quality for python projects. ',
-    'keywords': 'git quality python gittle',
+    'keywords': ['git', 'quality', 'python', 'gittle'],
     'version': version_string,
-    #'url': 'https://github.com/Radymus/QMetric',
-    #'license': '',
+    'url': 'https://github.com/Radymus/QMetric',
+    'license': '',
     'author': "Radim Spigel",
     'author_email': 'radim.spigel@gmail.com',
-    'long_description': """
-    This is project is for evaluate the hypothetical quality of \
-    the projects written in python.
-    """,
-    #'packages': ['QMetric'],
-    'scripts':['QMetric.py'],
+    'long_description': description,
+    'packages': [],
+    'scripts': ['QMetric.py'],
     'install_requires': [
-    # PyPI
-    'gittle==0.2.2',
-    'dulwich==0.9.4',
-   # 'gittle',
-   # 'dulwich'
+        'dulwich==0.9.4',
+        'gittle==0.2.2',
+        'pylint',
+        'pandas',
+        'lxml',
     ],
-  #  'dependency_links': [
-   #     'https://github.com/AaronO/dulwich/tarball/eebb032b2b7b982d21d636ac50b6e45de58b208b#egg=dulwich-0.9.4',
-   # ],
 }
 setup(**setup_kwargs)
