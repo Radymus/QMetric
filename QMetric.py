@@ -15,6 +15,10 @@ from gittle import Gittle, InvalidRemoteUrl
 import datetime
 from sets import Set
 from argparse import ArgumentParser
+log_format = "%(name)s:%(asctime)s:%(message)s"
+logging.basicConfig(format=log_format)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 class QMetric(object):
     """This class take like argumet path to the project and data
@@ -22,18 +26,15 @@ class QMetric(object):
        and return data for vizualization.
     """
 
-    def __init__(self, path):
+    def __init__(self, path, branch):
         """Inicialization variables for path and subversion data and rc file
             for pylint.
         """
-        self.vesion_system = self.GitData(path)
+        self.vesion_system = self.GitData(path, branch)
 
         self._path = self.vesion_system.return_repository_path()
-        print self._path
         self.subver_data, self.files = self.vesion_system.get_git_data()
-        #logging.info(self.subver_data, self.files)
         self.return_data = None
-        #test for existion rcfile for pylint
         if not os.path.exists("/tmp/rc"):
             os.system("pylint --generate-rcfile > /tmp/rc")
         self.__rc_file = os.getcwd() + "/rc"
@@ -113,36 +114,54 @@ class QMetric(object):
         for fname in self.files.keys():
             count = self.files[fname].groupby("author")
             count_line = self.files[fname].groupby(["author", "line"])
-            for author in count_line.groups.keys():
-                #if len(count_line.groups[author]) > 0:
-                self.rating[author[0]]["count_all_comm"] += 1
-                c_line = len(count_line.groups[author])
-                count_ = len(count.groups[author[0]])
-               # print author[0], c_line, count_,float(c_line/count_)
-                self.rating[author[0]]["avg_count"] += float(c_line/count_)
-                #print self.rating[author[0]]["avg_count"]
-            for author in count.groups.keys():
-                self.rating[author]["avg_count"] /= self.rating[author]["count_all_comm"]
-                if self.rating[author]["CCMMFile"] < len(count.groups[author]):
-                    self.rating[author]["CCMMFile"] = len(count.groups[author])
-                    self.rating[author]["MMFile"] = fname
-                rat = self.files[fname]
-                rat["avg_comm_rating"] = rat[rat.author == author]["rating"].mean()
+            self.__add_average_commit_counts(count_line, count)
+            self.__add_another_commit_ratings(count, fname)
+            self.__add_pylint_avgs(fname)
 
-            #shas = self.files[fname].groupby("sha")
-            try:
-                #for fil in self.pylint_rating[fname]:
-                    #print fil
-                for fil in self.pylint_rating[fname]:
-                    author = self.vesion_system.find_author_by_sha(fil["sha"])
-                    self.rating[author]["pylint"].append(float(fil["actual_rated"]))
-                    if fil["actual_rated"] < fil["previous_rated"]:
-                        self.rating[author]["pylint-"] += 1
-                    elif fil["actual_rated"] > fil["previous_rated"]:
-                        self.rating[author]["pylint+"] += 1
-            except KeyError:
-                logging.warning("not in pylint_rating")
-        #print self.rating
+
+    def __add_pylint_avgs(self, file_name):
+        """
+        This method counts positive and negative pylint ratings, take all
+        ratings to list for averaging.
+        """
+        try:
+            for fil in self.pylint_rating[file_name]:
+                author = self.vesion_system.find_author_by_sha(fil["sha"])
+                actual_rated = float(fil["actual_rated"])
+                self.rating[author]["pylint"].append(actual_rated)
+                if fil["actual_rated"] < fil["previous_rated"]:
+                    self.rating[author]["pylint-"] += 1
+                elif fil["actual_rated"] > fil["previous_rated"]:
+                    self.rating[author]["pylint+"] += 1
+        except KeyError:
+            logger.warning("not in pylint_rating")
+
+    def __add_average_commit_counts(self, count_line, count):
+        """
+        This method counts all commits(for getting range between commits
+        which modified same line). Also count sum of averages how many does
+        contributor change file/ count all commits to file.
+        """
+        for author in count_line.groups.iterkeys():
+            self.rating[author[0]]["count_all_comm"] += 1
+            c_line = len(count_line.groups[author])
+            count_ = len(count.groups[author[0]])
+            self.rating[author[0]]["avg_count"] += float(c_line / count_)
+
+    def __add_another_commit_ratings(self, count, file_name):
+        """
+        This method count mean value of ratings for every commit getting
+        in GitData.modificate_rating. Also search most modified file.
+        """
+        for author in count.groups.iterkeys():
+            a_rating = self.rating[author]
+            self.rating[author]["avg_count"] /= a_rating["count_all_comm"]
+            if self.rating[author]["CCMMFile"] < len(count.groups[author]):
+                self.rating[author]["CCMMFile"] = len(count.groups[author])
+                self.rating[author]["MMFile"] = file_name
+            rat = self.files[file_name]
+            a_rating_mean = rat[rat.author == author]["rating"].mean()
+            rat["avg_comm_rating"] = a_rating_mean
 
     def get_structure(self):
         """This method create dictionary of files in the project."""
@@ -176,8 +195,6 @@ class QMetric(object):
                     tmp_rating["previous_rated"] = frating.group(2)
                     tmp_rating["time"] = self.vesion_system.find_time_by_sha(sha)
                     tmp_rating["sha"] = sha
-                    #tmp_rating[file_html]["change"] = found_rating.group(3)
-        #self.rating.append(tmp_rating)
                     if file_html in self.pylint_rating:
                         self.pylint_rating[file_html].append(tmp_rating)
                     else:
@@ -186,33 +203,24 @@ class QMetric(object):
 
     def get_file(self, filee):
         """This method returns list of sha for file from df."""
-        #print filee
-
         fil = filee.split(self._path + "/")
-        #print fil, fil[1]
         try:
             files = self.files[fil[1]]["sha"].values
             return files
         except KeyError:
-            #logging.warning("This file %s is not in dataframe." % (fil[1]))
             return []
 
     def eval_file_in_history(self, filee):
         """This method take file and eval this file by history of commits
         thanks to method evaluate.
         """
-      #  lock.acquire()
         files = self.get_file(filee)
-        #print files
         if files != []:
             sets = Set(files)
             list_sha = list(sets)
-            #print list_sha
             self.evaluate(filee, list_sha)
         else:
             self.evaluate(filee, [])
-       # lock.release()
-        #out.put(self.pylint_rating)
 
     def eval_pylint(self, filee, sha):
         """Call pylint for file"""
@@ -224,19 +232,17 @@ class QMetric(object):
             tmp_df = read_html("/tmp/tmp_pylint_%s.html" % (fname))
             self.pylint_eval.append(tmp_df)
             self.find_rating(fil[1], sha)
-        except ImportError:
-            logging.warning("No html file")
+        except ImportError as e:
+            logger.warning("No html file %s" % e)
 
     def evaluate(self, filee, sha):
         """This method call rollback from GitData. This method returns data
         to previous state. Direction is from recent to first commit.
         """
-        #print filee, sha
         if sha == []:
             self.eval_pylint(filee, '')
         else:
             for item in sha:
-                #print item
                 self.vesion_system.rollback(item)
                 self.eval_pylint(filee, item)
 
@@ -245,7 +251,7 @@ class QMetric(object):
         repository.
         """
 
-        def __init__(self, git_path):
+        def __init__(self, git_path, branch="master"):
             self.__tmp_repository = "/tmp/tmp_repository_"
             self.__tmp_repository += (datetime.datetime.now().isoformat())
             self._data_frame = None
@@ -254,7 +260,6 @@ class QMetric(object):
             self.line_counter = {}
             self.git_repository = git_path
             str_url = r'(git://github.com/|https://github.com/|git@github.com:)(.*)'
-            #r"(.+:)(.*)(\.git)"
             git_url = re.compile(str_url)
             is_url = git_url.search(git_path)
             self.commits = {}
@@ -263,34 +268,27 @@ class QMetric(object):
                 self.__tmp_repository = self.git_repository
             else:
                 if self.git_repository.find(".git") < 0:
-                    logging.info("Must end .git i will add manualy")
+                    logger.info("Must end .git i will add manualy")
                     self.git_repository += ".git"
                 try:
                     Gittle.clone(self.git_repository, self.__tmp_repository)
                 except InvalidRemoteUrl:
-                    logging.error("Could not clone repository!")
-                    #return None
+                    logger.error("Could not clone repository!")
                 except ValueError:
-                    logging.error("Is not url.")
+                    logger.error("Is not url.")
                 self.__repository = Gittle(self.__tmp_repository)
-            self.__fill_data()
-           # print self.files
+            self.__fill_data(branch)
             self.eval_commits()
-            #print self.files["setup.py"]["modification"]
 
         def eval_commits(self):
             """This method walk through saved items and evaluate rating commits."""
             for inx in self.files.keys():
                 group = self.files[inx].groupby(["author", "line"])
-                #print group.groups
                 for value in group.groups.itervalues():
                     if len(value) > 1:
                         self.modificate_rating(inx, value)
-                       # print inx, value
-                        #print #group.groups[key]
-          #  print self.files["setup.py"]["rating"]
 
-        def modificate_rating(self, fname, index, procent=0.35):
+        def modificate_rating(self, fname, index, percent=0.35):
             """In this method i will walk through every saved commited lines.
             This data structure is
             sha1: line1, range, removed, num_lines, modification, rating
@@ -303,7 +301,7 @@ class QMetric(object):
             argument percent then i chose rating. After that, i change rating of
             commit in DataFrame for file in dictionary of files.
             """
-            logging.info("Start of evaulation of ratings for each commit.")
+            logger.info("Start of evaulation of ratings for each commit.")
             if fname.find(".py") < 0:
                 return
             df_file = self.files[fname]
@@ -320,23 +318,29 @@ class QMetric(object):
                 except ZeroDivisionError:
                     smod, fmod = 0, 0
                 smod += fmod
-                #print fname, smod
-                if rang <= 20 and rang > 1 and smod < procent:
-                    rating = -3
-                elif rang > 20 and rang <= 30 and smod < procent:
-                    rating = -2
-                elif rang > 30 and rang <= 40 and smod < procent:
-                    rating = -1
-                elif rang > 40 and rang <= 50 and smod < procent:
-                    rating = 0
-                else:
-                    rating = 1
-                    if smod >= procent:
-                        smod = 0.0
+                rating, smod = self.rating = self.__calc_rating(rang, smod, percent)
                 self.files[fname].ix[index[idx + 1], "modification"] = smod
                 self.files[fname].ix[index[idx + 1], "rating"] = rating
-            #print self.files[fname]["rating"]
-            logging.info("End of evaluation of ratings for every commit.")
+            logger.debug("End of evaluation of ratings for every commit.")
+
+        def __calc_rating(self, rang_btwn, modif_lines, percent):
+            """
+            This method rate the commit on based set arguments.
+            Return calculated rating and inicator of modification in file.
+            """
+            if rang_btwn <= 20 and rang_btwn > 1 and modif_lines < percent:
+                rating = -3
+            elif rang_btwn > 20 and rang_btwn <= 30 and modif_lines < percent:
+                rating = -2
+            elif rang_btwn > 30 and rang_btwn <= 40 and modif_lines < percent:
+                rating = -1
+            elif rang_btwn > 40 and rang_btwn <= 50 and modif_lines < percent:
+                rating = 0
+            else:
+                rating = 1
+            if modif_lines >= percent:
+                modif_lines = 0.0
+            return (rating, modif_lines)
 
         def return_repository_path(self):
             """ This method returns path to tmp repository"""
@@ -349,33 +353,28 @@ class QMetric(object):
             tmp_val = [idx[index] for idx in data_frame[what]]
             self._data_frame[what] = tmp_val
 
-        def __fill_data(self):
+        def __fill_data(self, branch):
             """ This method fill and parsing data to DataFrame."""
-            logging.info("Filling data to _data_frame")
+            logger.info("Filling data to _data_frame")
             tmp_df = DataFrame(self.__repository.commit_info())
             self._data_frame = DataFrame(tmp_df.sha, columns=["sha"])
             self._data_frame["description"] = tmp_df.description
             self._data_frame["message"] = tmp_df.message
             self._data_frame["summary"] = tmp_df.summary
             self._data_frame["time"] = tmp_df.time
-            #print tmp_df
-            #self._data_frame["timezone"] = tmp_df.timezone
             self.__get_data_from_df("author", tmp_df)
             self.__get_data_from_df("committer", tmp_df)
             index = 0
             try:
-                array = self.__repository.branch_walker("master")
+                array = self.__repository.branch_walker(branch)
                 master_branch = [sha.id for sha in array]
             except ValueError:
-                logging.warning("This repository dont have master branch")
-                master_branch = tmp_df.sha
+                raise Exception("This repository dont have %s branch" % branch)
             list_params = []
             app = list_params.append
-           # num_proces = 0
-            logging.info("Go through master branch and using gittle.diff for \
+            logger.info("Go through master branch and using gittle.diff for \
             getting diff output")
             for idx in master_branch:
-                #self._commits_dict[idx] = {}
                 diff = self.__repository.diff(idx)
                 rang = len(diff)
                 app(dict(
@@ -401,7 +400,6 @@ class QMetric(object):
             line_pattern = re.compile(str_pattern)
             counter_lines = re.compile(r'\n(\-)(.*)')
             add_lines = re.compile(r'\n(\+)(.*)')
-            #blank_lines = re.compile(r'\n( )(.*)')
             for params in list_params:
                 for indx in range(params["range"]):
                     #params["index"] += 1
@@ -419,9 +417,7 @@ class QMetric(object):
                     if re.search(r".*\.py", fname) is None:
                         continue
                     lcount = self.count_lines(fname)
-                   # lines_count -= removed
                     for group in line:
-                         #       print group[1]
                         start_line = abs(int(group[1]))
                         list_lines = [num + start_line for num in range(removed)]
                         if len(list_lines) > 0:
@@ -432,7 +428,7 @@ class QMetric(object):
                                             .append(df_lines, ignore_index=True)
                             else:
                                 self.files[fname] = df_lines
-            logging.info("END of walking through the all diffs for this repo.")
+            logger.info("END of walking through the all diffs for this repo.")
 
         def count_lines(self, fname):
             """This method count lines in file"""
@@ -464,7 +460,6 @@ class QMetric(object):
                             "time": self.find_time_by_sha(sha)
                             }
                          ))
-           # print tmp_list
             data_frame = DataFrame(tmp_list)
             return data_frame
 
@@ -474,10 +469,9 @@ class QMetric(object):
             """
             index = self._data_frame[self._data_frame.sha == sha].index
             try:
-                #print self._data_frame.author[index].values[0]
                 return self._data_frame.author[index].values[0]
             except IndexError:
-                logging.warning("Sha is not in data frame.")
+                logger.warning("Sha is not in data frame.")
             return None
 
         def find_time_by_sha(self, sha):
@@ -486,17 +480,17 @@ class QMetric(object):
             """
             index = self._data_frame[self._data_frame.sha == sha].index
             try:
-                #print self._data_frame.author[index].values[0]
                 return self._data_frame.time[index].values[0]
             except IndexError:
-                logging.warning("Sha is not in data frame.")
+                logger.warning("Sha is not in data frame.")
             return None
 
         def rollback(self, sha):
             """This method will make rollback to version which is set by sha."""
-            #print "rollback sha %s" % sha
-            self.__repository.checkout_all(sha)
-
+            try:
+                self.__repository.checkout_all(sha)
+            except IOError:
+                logger.warning("Couldn't rollback.")
         def rollback_to_first_commit(self, files):
             """This method will make rollback to first commit."""
             sha = None
@@ -523,7 +517,7 @@ class QMetric(object):
             try:
                 return self._commits_dict[sha]["files"]
             except BaseException:
-                logging.warning("Wrong sha hash or there is no file.")
+                logger.warning("Wrong sha hash or there is no file.")
                 return None
 
         def get_git_data(self):
@@ -532,12 +526,22 @@ class QMetric(object):
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser(description="This program is for\
-        evaluation of quality of project based on hypothetical patterns of\
-        quality. Like a first argument insert the Git repository which you\
-        want to evaluate.")
-    parser.add_argument("path", type=str, help="www or path to git\
-        repository this choice evaluate project with default settings. \
-        This means that in browser will be started webpage with\
-        vizualization of quality.")
-    QMETRIC = QMetric(parser.parse_args().path)
+    parser = ArgumentParser(
+        description=("This program is for evaluation of quality of "
+                     "project based on hypothetical patterns of quality."))
+
+    parser.add_argument("path", help="www or path to git repo to evaluate")
+    parser.add_argument("--branch", default="master",
+                        help="set branch what we wanna evaluate,"
+                        "default is master branch")
+    parser.add_argument("debug", action='store_true',
+                        help="enable debugging output")
+    parser.add_argument("debug", action='store_true',
+                        help="enable debugging output")
+    args = parser.parse_args()
+    path = args.path
+    branch = args.branch
+    debug = args.debug
+    if debug:
+        logger.setLevel(logging.DEBUG)
+    QMETRIC = QMetric(path, branch)
