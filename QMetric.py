@@ -5,7 +5,7 @@ Created on Thu Apr  3 21:24:06 2014
 @author: Radim Spigel
 """
 from __future__ import division
-#import pandas
+import shutil
 import os
 import pprint
 import logging
@@ -15,8 +15,12 @@ from gittle import Gittle, InvalidRemoteUrl
 import datetime
 from sets import Set
 from argparse import ArgumentParser
+import tempfile
+
+TMP_DIR = tempfile.gettempdir()
+
 log_format = "%(name)s:%(asctime)s:%(message)s"
-logging.basicConfig(format=log_format)
+logging.basicConfig(format=log_format, filename="log.log")
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -33,8 +37,10 @@ class QMetric(object):
         self.vesion_system = self.GitData(path, branch)
 
         self._path = self.vesion_system.return_repository_path()
+        logger.debug('Repo Path: %s' % self._path)        
         self.subver_data, self.files = self.vesion_system.get_git_data()
         self.return_data = None
+        #test for existion rcfile for pylint        
         if not os.path.exists("/tmp/rc"):
             os.system("pylint --generate-rcfile > /tmp/rc")
         self.__rc_file = os.getcwd() + "/rc"
@@ -45,11 +51,10 @@ class QMetric(object):
         self.pylint_eval = []
         self.rating = {}
         self.get_structure()
-        #pprint.pprint(self.pylint_rating)
         self.create_final_structure()
         self.rate()
         self.count_final_rating(dict(count_w=0.1, comm_w=0.1, avg_pylint_w=0.1, pylint_w=0.1))
-        pprint.pprint(self.rating)
+        logger.info('Rating: %s' % pprint.pformat(self.rating))
 
     def create_final_structure(self):
         """Creating of structure for authors."""
@@ -100,16 +105,21 @@ class QMetric(object):
 
     def rate(self):
         """
-        This method rate all authors. Main function in this method is iterate
-        for every lines which every contributor committed to current file. Has
-        some statistic variables. One is counter for counting how many commits
-        did to file each contributor. Next variable is sum of average how many
-        does contributor change file/ count all commits to file. Next variable
-        is most modified file and how many commits did contributor done to this
-        file. Another variable is mean value of ratings for every commit getting
-        in GitData.modificate_rating. Last variable is pylint negative or
-        positive result if author decreases pylint rating gets negative evaluate
-        if  author increase pylint rating gets positive else gets nothing.
+        This method rates authors. Main function in this method is iterate
+        for every lines which every contributor committed to current file.
+        Has some statistic variables. One is counter for counting how many
+        commits did to file each contributor.
+        
+        Next variable is sum of average how many does contributor change
+        file/ count all commits to file. Next variable is most modified
+        file and how many commits did contributor done to this file.
+        
+        Another variable is mean value of ratings for every commit getting
+        in GitData.modificate_rating.
+        
+        Last variable is pylint negative or positive result if author
+        decreases pylint rating gets negative evaluate
+        if author increase pylint rating gets positive else gets nothing.
         """
         for fname in self.files.keys():
             count = self.files[fname].groupby("author")
@@ -184,22 +194,22 @@ class QMetric(object):
         str_rating = r"Your code has been rated at ([-\d\.]+)\/10 "
         str_rating += r"\(previous run: ([\d\.]+)\/10.*"
         re_rating = re.compile(str_rating)
-        tmp_rating = {}
+        _rating = {}
         #print self.git_data.find_time_by_sha(sha)
         fnm = file_html.replace("/", "_")
         with open("/tmp/tmp_pylint_%s.html" %(fnm)) as fname:
             for line in fname:
                 frating = re_rating.search(line)
                 if frating is not None:
-                    tmp_rating["actual_rated"] = frating.group(1)
-                    tmp_rating["previous_rated"] = frating.group(2)
-                    tmp_rating["time"] = self.vesion_system.find_time_by_sha(sha)
-                    tmp_rating["sha"] = sha
+                    _rating["actual_rated"] = frating.group(1)
+                    _rating["previous_rated"] = frating.group(2)
+                    _rating["time"] = self.vesion_system.find_time_by_sha(sha)
+                    _rating["sha"] = sha
                     if file_html in self.pylint_rating:
-                        self.pylint_rating[file_html].append(tmp_rating)
+                        self.pylint_rating[file_html].append(_rating)
                     else:
                         self.pylint_rating[file_html] = []
-                        self.pylint_rating[file_html].append(tmp_rating)
+                        self.pylint_rating[file_html].append(_rating)
 
     def get_file(self, filee):
         """This method returns list of sha for file from df."""
@@ -251,17 +261,21 @@ class QMetric(object):
         repository.
         """
 
-        def __init__(self, git_path, branch="master"):
-            self.__tmp_repository = "/tmp/tmp_repository_"
-            self.__tmp_repository += (datetime.datetime.now().isoformat())
+        def __init__(self, uri, branch="master", cached=False):
             self._data_frame = None
             self._commits_dict = {}
             self.files = {}
             self.line_counter = {}
-            self.git_repository = git_path
+            self.git_repository = uri
             str_url = r'(git://github.com/|https://github.com/|git@github.com:)(.*)'
             git_url = re.compile(str_url)
-            is_url = git_url.search(git_path)
+            _uri_safe = ''.join([c for c in uri if c.isalnum()])
+            self.repo_path = os.path.join(TMP_DIR, _uri_safe)
+            self.__tmp_repository = self.repo_path
+            if not cached and os.path.exists(self.repo_path):
+                #dont use cached repo
+                shutil.rmtree(self.repo_path)
+            is_url = git_url.search(uri)
             self.commits = {}
             if is_url is None:
                 self.__repository = Gittle(self.git_repository)
@@ -271,11 +285,14 @@ class QMetric(object):
                     logger.info("Must end .git i will add manualy")
                     self.git_repository += ".git"
                 try:
+                    logger.info('Cloning git repo: %s' % self.repo_path)
                     Gittle.clone(self.git_repository, self.__tmp_repository)
                 except InvalidRemoteUrl:
                     logger.error("Could not clone repository!")
                 except ValueError:
                     logger.error("Is not url.")
+                except KeyError as e:
+                    raise Exception("Could not clone repository. Error: %s" % e)
                 self.__repository = Gittle(self.__tmp_repository)
             self.__fill_data(branch)
             self.eval_commits()
