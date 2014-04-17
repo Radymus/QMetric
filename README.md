@@ -2,10 +2,14 @@ QMetric
 =======
 
 This is project is for evaluate the hypothetical quality of the projects written in python.
-For correct running is needed this python libraries Gittle, Pandas and Pylint.
 
-It could be run:
+Dependencies:: 
+    yum install libxslt-devel libxml2-devel
+    pip install dulwich==0.9.4 gittle pandas pylint lxml
 
-python QMetric.py git://github.com/user/project.git etc.
+It could be run as such::
 
-Other options are in help (QMetric.py --help )
+    python QMetric.py git://github.com/user/project.git etc.
+
+Other options are in help (QMetric.py --help)
+
