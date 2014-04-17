@@ -7,12 +7,10 @@ Created on Thu Apr  3 21:24:06 2014
 from __future__ import division
 import shutil
 import os
-import pprint
 import logging
 import re
 from pandas import DataFrame, read_html
 from gittle import Gittle, InvalidRemoteUrl
-from sets import Set
 from argparse import ArgumentParser
 import tempfile
 
@@ -45,23 +43,92 @@ class QMetric(object):
         self.__rc_file = os.getcwd() + "/rc"
         self.pylint_rating = {}
         self.pylint_eval = []
-        self.rating = {}
-        self.get_structure()
+        #self.get_pylint()
+        self.rating = {}     
         self.create_final_structure()
         self.rate()
-        self.count_final_rating(
-        dict(
-        count_w=0.1,
-        comm_w=0.1,
-        avg_pylint_w=0.1,
-        pylint_w=0.1)
-        )
-        logger.info('Rating: %s' % pprint.pformat(self.rating))
+        weights = dict(count_w=0.1, comm_w=0.1, avg_pylint_w=0.1, pylint_w=0.1)
+        self.count_final_rating(weights)
+
+    def get_pylint(self):
+        """This method create dictionary of files in the project."""
+        dirpaths, dirnames, files = [], [], []
+        for dirpath, dirname, filee in os.walk(self._path):
+            if filee != []:
+                for fil in filee:
+                    if re.search(r".*\.py", fil) is not None:
+                        self.eval_file_in_history(dirpath + "/" + fil)
+                        
+    def eval_file_in_history(self, filee):
+        """This method take file and eval this file by history of commits
+        thanks to method evaluate.
+        """
+        shas = self.get_shas(filee)
+        if shas != []:
+            sets = set(shas)
+            list_sha = list(sets)
+            self.evaluate(filee, list_sha)
+        else:
+            logger.error("No sha for this file %s " % filee)
+            return         
+            
+    def get_shas(self, filee):
+        """This method returns list of sha for file from df."""
+        fil = filee.split(self._path + "/")
+        try:
+            files = self.files[fil[1]]["sha"].values
+            return files
+        except KeyError:
+            return []
+             
+    def evaluate(self, filee, sha):
+        """This method call rollback from GitData. This method returns data
+        to previous state. Direction is from recent to first commit.
+        """
+        for item in sha:
+            self.vesion_system.rollback(item)
+            self.eval_pylint(filee, item)
+
+    def eval_pylint(self, filee, sha):
+        """Call pylint for file"""
+        fil = filee.split(self._path + "/")
+        fname = fil[1].replace("/", "_")
+        os.system("pylint --rcfile=/tmp/rc --output=html " + filee + " > \
+             /tmp/tmp_pylint_%s.html" % (fname))
+        try:
+            tmp_df = read_html("/tmp/tmp_pylint_%s.html" % (fname))
+            self.pylint_eval.append(tmp_df)
+            self.find_rating(fil[1], sha)
+        except ImportError as err:
+            logger.warning("No html file %s" % err)                
+
+    def find_rating(self, file_html, sha):
+        """This method walk through file and find rating which is genereted
+        from pylint.
+        """
+        str_rating = r"Your code has been rated at ([-\d\.]+)\/10 "
+        str_rating += r"\(previous run: ([\d\.]+)\/10.*"
+        re_rating = re.compile(str_rating)
+        _rating = {}
+        fnm = file_html.replace("/", "_")
+        with open("/tmp/tmp_pylint_%s.html" %(fnm)) as fname:
+            for line in fname:
+                frating = re_rating.search(line)
+                if frating is not None:
+                    _rating["actual_rated"] = frating.group(1)
+                    _rating["previous_rated"] = frating.group(2)
+                    _rating["time"] = self.vesion_system.find_time_by_sha(sha)
+                    _rating["sha"] = sha
+                    if file_html in self.pylint_rating:
+                        self.pylint_rating[file_html].append(_rating)
+                    else:
+                        self.pylint_rating[file_html] = []
+                        self.pylint_rating[file_html].append(_rating)
 
     def create_final_structure(self):
-        """Creating of structure for authors."""
+        """finale structure"""
         authors = self.subver_data.groupby(["author"])
-        for author in authors.groups.keys():
+        for author in authors.groups.keys():  
             self.rating[author] = {}
             #if pylint rating was > then prev
             self.rating[author]["pylint+"] = 0
@@ -72,40 +139,17 @@ class QMetric(object):
             #count commits in MMFile
             self.rating[author]["CCMMFile"] = 0
             #avg of all average of commits
-            self.rating[author]["avg_count"] = 0.0
+            self.rating[author]["avg_count"] = []
             #count of all average of commits for prev avg_count
             self.rating[author]["count_all_comm"] = 0
             #mean of all rating of commits
-            self.rating[author]["avg_comm_rating"] = 0.0
+            self.rating[author]["avg_comm_rating"] = []
+            #self.rating[author]["list_comm_ratings"] = []
             #final rating
             self.rating[author]["final_rating"] = 0.0
             #list of ratings
-            self.rating[author]["pylint"] = []
-
-    def count_final_rating(self, weight):
-        """Count final rating. First i get difference between positive and
-        negative rating. Next i get average how many does contributor
-        change file/ count all commits to file.
-        Another variable is average ratings for commits what this author did
-        to file. After that i get average value for every pylint rating for
-        all files. Last is total rating which is mean value from this
-        variables. For each variables is set weight"""
-        for author in self.rating.keys():
-            avg_pylint = (self.rating[author]["pylint+"] -\
-            self.rating[author]["pylint-"])
-            avg_pylint *= weight["pylint_w"]
-            avg_count = self.rating[author]["avg_count"] * weight["count_w"]
-            avg_comm = self.rating[author]["avg_comm_rating"] * weight["comm_w"]
-            avg_pylint = avg_pylint * weight["avg_pylint_w"]
-            avg_list_pylint = sum(self.rating[author]["pylint"])
-            if len(self.rating[author]["pylint"]) > 0:
-                avg_list_pylint /= len(self.rating[author]["pylint"])
-            final = (avg_pylint + avg_count + avg_comm + avg_list_pylint) / 4
-            if (final*100) < 100.0:
-                self.rating[author]["final_rating"] = final*100
-            else:
-                self.rating[author]["final_rating"] = 100.0
-
+            self.rating[author]["pylint"] = []     
+                        
     def rate(self):
         """
         This method rates authors. Main function in this method is iterate
@@ -131,7 +175,32 @@ class QMetric(object):
             self.__add_another_commit_ratings(count, fname)
             self.__add_pylint_avgs(fname)
 
+    def __add_average_commit_counts(self, count_line, count):
+        """
+        This method counts all commits(for getting range between commits
+        which modified same line). Also count sum of averages how many does
+        contributor change file/ count all commits to file.
+        """
+        for author in count_line.groups.iterkeys():         
+            self.rating[author[0]]["count_all_comm"] += 1
+            c_line = len(count_line.groups[author])
+            count_ = len(count.groups[author[0]])
+            #logger.info("Count lines %s and global count %s" % 
+             #       (c_line, count_))
+            self.rating[author[0]]["avg_count"].append(float(c_line / count_))
 
+    def __add_another_commit_ratings(self, count, file_name):
+        """
+        This method count mean value of ratings for every commit getting
+        in GitData.modificate_rating. Also search most modified file.
+        """
+        for author in count.groups.iterkeys():          
+            if self.rating[author]["CCMMFile"] < len(count.groups[author]):
+                self.rating[author]["CCMMFile"] = len(count.groups[author])
+                self.rating[author]["MMFile"] = file_name
+            rat = self.files[file_name]
+            self.rating[author]["avg_comm_rating"].append(rat[rat.author == author]["rating"].mean())   
+                     
     def __add_pylint_avgs(self, file_name):
         """
         This method counts positive and negative pylint ratings, take all
@@ -142,120 +211,50 @@ class QMetric(object):
                 author = self.vesion_system.find_author_by_sha(fil["sha"])
                 actual_rated = float(fil["actual_rated"])
                 self.rating[author]["pylint"].append(actual_rated)
-                if fil["actual_rated"] < fil["previous_rated"]:
+                # because we direction is from last to first must take prev 
+                # with actual 
+                if fil["previous_rated"] < fil["actual_rated"]:
                     self.rating[author]["pylint-"] += 1
-                elif fil["actual_rated"] > fil["previous_rated"]:
+                elif fil["previous_rated"] > fil["actual_rated"]:
                     self.rating[author]["pylint+"] += 1
         except KeyError:
             logger.warning("not in pylint_rating for %s" % file_name)
 
-    def __add_average_commit_counts(self, count_line, count):
-        """
-        This method counts all commits(for getting range between commits
-        which modified same line). Also count sum of averages how many does
-        contributor change file/ count all commits to file.
-        """
-        for author in count_line.groups.iterkeys():
-            self.rating[author[0]]["count_all_comm"] += 1
-            c_line = len(count_line.groups[author])
-            count_ = len(count.groups[author[0]])
-            self.rating[author[0]]["avg_count"] += float(c_line / count_)
-
-    def __add_another_commit_ratings(self, count, file_name):
-        """
-        This method count mean value of ratings for every commit getting
-        in GitData.modificate_rating. Also search most modified file.
-        """
-        for author in count.groups.iterkeys():
-            a_rating = self.rating[author]
-            self.rating[author]["avg_count"] /= a_rating["count_all_comm"]
-            if self.rating[author]["CCMMFile"] < len(count.groups[author]):
-                self.rating[author]["CCMMFile"] = len(count.groups[author])
-                self.rating[author]["MMFile"] = file_name
-            rat = self.files[file_name]
-            a_rating_mean = rat[rat.author == author]["rating"].mean()
-            rat["avg_comm_rating"] = a_rating_mean
-
-    def get_structure(self):
-        """This method create dictionary of files in the project."""
-        dirpaths, dirnames, files = [], [], []
-        for dirpath, dirname, filee in os.walk(self._path):
-            if filee != []:
-                for fil in filee:
-                    if re.search(r".*\.py", fil) is not None:
-                        self.eval_file_in_history(dirpath + "/" + fil)
-            dirpaths.append(dirpath)
-            dirnames.append(dirname)
-            files.append(filee)
-
-    def find_rating(self, file_html, sha):
-        """This method walk through file and find rating which is genereted
-        from pylint.
-        """
-        str_rating = r"Your code has been rated at ([-\d\.]+)\/10 "
-        str_rating += r"\(previous run: ([\d\.]+)\/10.*"
-        re_rating = re.compile(str_rating)
-        _rating = {}
-        fnm = file_html.replace("/", "_")
-        with open("/tmp/tmp_pylint_%s.html" %(fnm)) as fname:
-            for line in fname:
-                frating = re_rating.search(line)
-                if frating is not None:
-                    _rating["actual_rated"] = frating.group(1)
-                    _rating["previous_rated"] = frating.group(2)
-                    _rating["time"] = self.vesion_system.find_time_by_sha(sha)
-                    _rating["sha"] = sha
-                    if file_html in self.pylint_rating:
-                        self.pylint_rating[file_html].append(_rating)
-                    else:
-                        self.pylint_rating[file_html] = []
-                        self.pylint_rating[file_html].append(_rating)
-
-    def get_shas(self, filee):
-        """This method returns list of sha for file from df."""
-        fil = filee.split(self._path + "/")
-        try:
-            files = self.files[fil[1]]["sha"].values
-            return files
-        except KeyError:
-            return []
-
-    def eval_file_in_history(self, filee):
-        """This method take file and eval this file by history of commits
-        thanks to method evaluate.
-        """
-        shas = self.get_shas(filee)
-        if shas != []:
-            sets = Set(shas)
-            list_sha = list(sets)
-            self.evaluate(filee, list_sha)
+    def count_final_rating(self, weight):
+        """Count final rating. First i get difference between positive and
+        negative rating. Next i get average how many does contributor
+        change file/ count all commits to file.
+        Another variable is average ratings for commits what this author did
+        to file. After that i get average value for every pylint rating for
+        all files. Last is total rating which is mean value from this
+        variables. For each variables is set weight"""
+        for author in self.rating.keys():
+            avg_pylint = (self.rating[author]["pylint+"] -\
+            self.rating[author]["pylint-"])
+            avg_pylint *= weight["pylint_w"]
+            avg_count = self.avg(self.rating[author]["avg_count"]) * 100 * weight["count_w"]
+            avg_comm = self.avg(self.rating[author]["avg_comm_rating"]) * 100 
+            avg_comm *= weight["comm_w"]
+            avg_comm /= 4
+            avg_pylint = avg_pylint * weight["avg_pylint_w"]
+            avg_list_pylint = self.avg(self.rating[author]["pylint"])
+            final = (avg_count + avg_comm)
+            logger.info("Author: %s \nAvg lines: %s\nAvg commits: %s\nFinal: %s"
+                % (author, avg_count, avg_comm, final))
+            self.rating[author]["avg_pylint"] = avg_list_pylint
+            if (final*10) < 100.0:
+                self.rating[author]["final_rating"] = final*10
+            else:
+                self.rating[author]["final_rating"] = 100.0
+            logger.info("Final after eval %s" % self.rating[author]["final_rating"])
+                
+    def avg(self, list_el):
+        """This method returns average value for list"""
+        if len(list_el) > 0:
+            return sum(list_el) / len(list_el)
         else:
-            self.evaluate(filee, [])
-
-    def eval_pylint(self, filee, sha):
-        """Call pylint for file"""
-        fil = filee.split(self._path + "/")
-        fname = fil[1].replace("/", "_")
-        os.system("pylint --rcfile=/tmp/rc --output=html " + filee + " > \
-             /tmp/tmp_pylint_%s.html" % (fname))
-        try:
-            tmp_df = read_html("/tmp/tmp_pylint_%s.html" % (fname))
-            self.pylint_eval.append(tmp_df)
-            self.find_rating(fil[1], sha)
-        except ImportError as err:
-            logger.warning("No html file %s" % err)
-
-    def evaluate(self, filee, sha):
-        """This method call rollback from GitData. This method returns data
-        to previous state. Direction is from recent to first commit.
-        """
-        if sha == []:
-            self.eval_pylint(filee, '')
-        else:
-            for item in sha:
-                self.vesion_system.rollback(item)
-                self.eval_pylint(filee, item)
-
+            return 0.0
+            
     class GitData(object):
         """ This class is for getting contribution, users and other data from Git
         repository.
@@ -318,7 +317,7 @@ class QMetric(object):
             argument percent then i chose rating. After that, i change rating of
             commit in DataFrame for file in dictionary of files.
             """
-           # logger.info("Start of evaulation of ratings for each commit.")
+            logger.info("Start of evaulation of ratings for each commit.")
             if fname.find(".py") < 0:
                 return
             df_file = self.files[fname]
@@ -328,9 +327,9 @@ class QMetric(object):
                 next_range = df_file.ix[index[idx + 1]]["range"]
                 rang = next_range - ackt_range
                 try:
-                    fmod = float(df_file.ix[index[idx]]["removed"]) \
+                    fmod = float(df_file.ix[index[idx]]["changed_lines"]) \
                     / float(df_file.ix[index[idx]]["num_lines"])
-                    smod = float(df_file.ix[index[idx + 1]]["removed"]) \
+                    smod = float(df_file.ix[index[idx + 1]]["changed_lines"]) \
                     / float(df_file.ix[index[idx + 1]]["num_lines"])
                 except ZeroDivisionError:
                     smod, fmod = 0, 0
@@ -338,7 +337,7 @@ class QMetric(object):
                 ratings, smod = self.__calc_rating(rang, smod, percent)
                 self.files[fname].ix[index[idx + 1], "modification"] = smod
                 self.files[fname].ix[index[idx + 1], "rating"] = ratings
-            #logger.debug("End of evaluation of ratings for every commit.")
+            logger.debug("End of evaluation of ratings for every commit.")
 
         def __calc_rating(self, rang_btwn, modif_lines, percent):
             """
@@ -346,15 +345,15 @@ class QMetric(object):
             Return calculated rating and inicator of modification in file.
             """
             if rang_btwn <= 20 and rang_btwn > 1 and modif_lines < percent:
-                rating = -3
-            elif rang_btwn > 20 and rang_btwn <= 30 and modif_lines < percent:
-                rating = -2
-            elif rang_btwn > 30 and rang_btwn <= 40 and modif_lines < percent:
-                rating = -1
-            elif rang_btwn > 40 and rang_btwn <= 50 and modif_lines < percent:
                 rating = 0
-            else:
+            elif rang_btwn > 20 and rang_btwn <= 30 and modif_lines < percent:
                 rating = 1
+            elif rang_btwn > 30 and rang_btwn <= 40 and modif_lines < percent:
+                rating = 2
+            elif rang_btwn > 40 and rang_btwn <= 50 and modif_lines < percent:
+                rating = 3
+            else:
+                rating = 4
             if modif_lines >= percent:
                 modif_lines = 0.0
             return (rating, modif_lines)
@@ -375,35 +374,27 @@ class QMetric(object):
             logger.info("Filling data to _data_frame")
             tmp_df = DataFrame(self.__repository.commit_info())
             self._data_frame = DataFrame(tmp_df.sha, columns=["sha"])
-            self._data_frame["description"] = tmp_df.description
-            self._data_frame["message"] = tmp_df.message
-            self._data_frame["summary"] = tmp_df.summary
             self._data_frame["time"] = tmp_df.time
             self.__get_data_from_df("author", tmp_df)
-            self.__get_data_from_df("committer", tmp_df)
-            index = 0
             try:
                 array = self.__repository.branch_walker(branch)
-                master_branch = [sha.id for sha in array]
+                __branch = [sha.id for sha in array]
             except ValueError:
                 raise Exception("This repository dont have %s branch" % branch)
             list_params = []
-            app = list_params.append
             logger.info("Go through master branch and using gittle.diff for \
             getting diff output")
-            for idx in master_branch:
-                diff = self.__repository.diff(idx)
+            for idx, sha in enumerate(__branch):
+                diff = self.__repository.diff(sha)
                 rang = len(diff)
-                app(dict(
-                        {"idx": idx,
+                list_params.append({"sha": sha,
                          "diff": diff,
                          "range": rang,
-                         "index": index}
-                    ))
-                index += 1
-            self._trought_diff(list_params)
+                         "index": idx
+                    })
+            self.__diff(list_params)
 
-        def _trought_diff(self, list_params):
+        def __diff(self, list_params):
             """
             This method for walk through diff from gittle. Found removed lines,
             added lines to file and make difference betwen. Thanks difference
@@ -419,6 +410,12 @@ class QMetric(object):
             add_lines = re.compile(r'\n(\+)(.*)')
             for params in list_params:
                 for indx in range(params["range"]):
+                    fname = params["diff"][indx]["new"]["path"]
+                    if fname == '' or fname == None:
+                        fname = params["diff"][indx]["old"]["path"]
+
+                    if re.search(r".*\.py", fname) is None:
+                        continue                    
                     params["index"] += 1
                     tmp_commit = params["diff"][indx]["diff"]
                     line = line_pattern.findall(tmp_commit)
@@ -427,12 +424,6 @@ class QMetric(object):
                     removed = len(removed_line) - 1
                     added = len(add_line)  - 1
                     change = (removed - added)
-                    fname = params["diff"][indx]["new"]["path"]
-                    if fname == '' or fname == None:
-                        fname = params["diff"][indx]["old"]["path"]
-
-                    if re.search(r".*\.py", fname) is None:
-                        continue
                     lcount = self.count_lines(fname)
                     for group in line:
                         start_line = abs(int(group[1]))
@@ -440,10 +431,13 @@ class QMetric(object):
                         if len(list_lines) > 0:
                             df_lines = self.set_lines_df(dict(
                             list_lines=list_lines,
-                            sha=params["idx"],
+                            sha=params["sha"],
                             index=params["index"],
-                            removed=change,
-                            line_count=lcount))
+                            changed_lines=change,
+                            line_count=lcount,
+                            add_lines=add_line,
+                            removed_lines=removed,                            
+                            ))
                             if fname in self.files:
                                 self.files[fname] = self.files[fname]\
                                             .append(df_lines, ignore_index=True)
@@ -468,20 +462,19 @@ class QMetric(object):
             """Method take dictionary of parametrs, which contain sha, line
             index, removed, line_count, Return dataframe lines"""
             tmp_list = []
-            append = tmp_list.append
             for line in args["list_lines"]:
-                append(dict(
-                            {"line": line,
+                tmp_list.append({"line": line,
                             "author": self.find_author_by_sha(args["sha"]),
                             "sha": args["sha"],
                             "range": args["index"],
-                            "rating": 1,
+                            "rating": 3,
                             "num_lines": args["line_count"],
-                            "removed": abs(args["removed"]),
+                            "removed_lines": args["removed_lines"],
+                            "add_lines" : args["add_lines"],
+                            "changed_lines": abs(args["changed_lines"]),
                             "modification": 0.0,
                             "time": self.find_time_by_sha(args["sha"])
-                            }
-                         ))
+                         })
             data_frame = DataFrame(tmp_list)
             return data_frame
 
@@ -517,35 +510,6 @@ class QMetric(object):
                 self.__repository.checkout_all(sha)
             except IOError:
                 logger.warning("Couldn't rollback on sha %s." % sha)
-
-        def rollback_to_first_commit(self, files):
-            """This method will make rollback to first commit."""
-            sha = None
-            for idx in self._commits_dict:
-                if self._commits_dict[idx]['files'] == files:
-                    sha = idx
-                    break
-            if sha is None:
-                return None
-            self.rollback(sha)
-
-        def rollback_to_last_commit(self, files):
-            """This method will make rollback to first commit."""
-            sha = None
-            for idx in self._commits_dict:
-                if self._commits_dict[idx]['files'] == files:
-                    sha = idx
-            if sha is None:
-                return None
-            self.rollback(sha)
-
-        def find_list_files(self, sha):
-            """This method returns list of files for current sha hash."""
-            try:
-                return self._commits_dict[sha]["files"]
-            except BaseException:
-                logger.warning("Wrong sha hash or there is no file.")
-                return None
 
         def get_git_data(self):
             """ This method returns data frame for project or None. """
