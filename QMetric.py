@@ -24,6 +24,7 @@ logging.basicConfig(format=LOG_FORMAT, filename="log.log")
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 GIT_URL = r'(git://github.com/|https://github.com/|git@github.com:)(.*)'
+
 def eval_pylints(filee, sha):
     """
     Call pylint for file returns dictionary of actual rating, previous
@@ -47,6 +48,26 @@ def eval_pylints(filee, sha):
             pylint_file=filee,
             sha=sha
             )
+
+def calc_rating(rang_btwn, modif_lines, percent):
+    """
+    This method rate the commit on based set arguments.
+    Return calculated rating and inicator of modification in file.
+    """
+    if rang_btwn <= 25 and rang_btwn > 1 and modif_lines < percent:
+        rating = 0
+    elif rang_btwn > 25 and rang_btwn <= 35 and modif_lines < percent:
+        rating = 1
+    elif rang_btwn > 35 and rang_btwn <= 45 and modif_lines < percent:
+        rating = 2
+    elif rang_btwn > 45 and rang_btwn <= 55 and modif_lines < percent:
+        rating = 3
+    else:
+        rating = 4
+    if modif_lines >= percent:
+        modif_lines = 0.0
+    return (rating, modif_lines)
+
 def avg(list_el):
     """This method returns average value for list"""
     if len(list_el) > 0:
@@ -87,7 +108,7 @@ class QMetric(object):
        and return data for vizualization.
     """
 
-    def __init__(self, path, branch, allow_pylint=False):
+    def __init__(self, path, branch, allow_pylint=True):
         """Inicialization variables for path and subversion data and rc file
             for pylint.
         """
@@ -175,6 +196,36 @@ class QMetric(object):
             self.__add_another_commit_ratings(count, fname)
             self.__add_pylint_avgs(fname)
 
+    def __init_structure(self, author):
+        """
+        Method for creating structure for authors.
+        """
+        self.rating[author] = {}
+        #if pylint rating was > then prev
+        self.rating[author]["pylint+"] = 0
+        #if pylint rating was < then prev
+        self.rating[author]["pylint-"] = 0
+        #most modified file
+        self.rating[author]["MMFile"] = ""
+        #count commits in MMFile
+        self.rating[author]["CCMMFile"] = 0
+        #avg of all average of commits
+        self.rating[author]["avg_count"] = []
+        #count of all average of commits for prev avg_count
+        self.rating[author]["count_all_comm"] = 0
+        #mean of all rating of commits
+        self.rating[author]["avg_comm_rating"] = []
+        self.rating[author]["pylint_time"] = []
+        self.rating[author]["time"] = []
+        self.rating[author]["files"] = []
+        self.rating[author]["hyphotetical_rating"] = 0.0
+        self.rating[author]["pylint_rating"] = 0.0
+        #self.rating[author]["list_comm_ratings"] = []
+        #final rating
+        self.rating[author]["final_rating"] = 0.0
+        #list of ratings
+        self.rating[author]["pylint"] = []
+
     def __add_average_commit_counts(self, count_line, count):
         """
         This method counts all commits(for getting range between commits
@@ -182,32 +233,8 @@ class QMetric(object):
         contributor change file/ count all commits to file.
         """
         for author in count_line.groups.iterkeys():
-            if author not in self.rating:
-                self.rating[author[0]] = {}
-                #if pylint rating was > then prev
-                self.rating[author[0]]["pylint+"] = 0
-                #if pylint rating was < then prev
-                self.rating[author[0]]["pylint-"] = 0
-                #most modified file
-                self.rating[author[0]]["MMFile"] = ""
-                #count commits in MMFile
-                self.rating[author[0]]["CCMMFile"] = 0
-                #avg of all average of commits
-                self.rating[author[0]]["avg_count"] = []
-                #count of all average of commits for prev avg_count
-                self.rating[author[0]]["count_all_comm"] = 0
-                #mean of all rating of commits
-                self.rating[author[0]]["avg_comm_rating"] = []
-                self.rating[author[0]]["pylint_time"] = []
-                self.rating[author[0]]["time"] = []
-                self.rating[author[0]]["files"] = []
-                self.rating[author[0]]["hyphotetical_rating"] = 0.0
-                self.rating[author[0]]["pylint_rating"] = 0.0
-               #self.rating[author]["list_comm_ratings"] = []
-                #final rating
-                self.rating[author[0]]["final_rating"] = 0.0
-                #list of ratings
-                self.rating[author[0]]["pylint"] = []
+            if author[0] not in self.rating:
+                self.__init_structure(author[0])
             self.rating[author[0]]["count_all_comm"] += 1
             c_line = len(count_line.groups[author])
             count_ = len(count.groups[author[0]])
@@ -225,9 +252,9 @@ class QMetric(object):
             rat = self.files[file_name]
             #self.rating[author]["commits_rating"].append()
             shas = rat[rat.author == author]["sha"].unique()
-            self.rating[author]["avg_comm_rating"] = [
+            self.rating[author]["avg_comm_rating"] += [
                 rat[rat.sha == sha]["rating"].mean() for sha in shas]
-            self.rating[author]["time"] = [
+            self.rating[author]["time"] += [
                 rat[rat.sha == sha]["time"].unique() for sha in shas]
 
     def __add_pylint_avgs(self, file_name):
@@ -236,20 +263,20 @@ class QMetric(object):
         ratings to list for averaging.
         """
         try:
-            for fil in self.pylint_rating[file_name]:
-                if fil is None:
+            for file_d in self.pylint_rating[file_name]:
+                if file_d is None:
                     continue
-                author = self.vesion_system.find_author_by_sha(fil["sha"])
-                rtime = self.vesion_system.find_time_by_sha(fil["sha"])
-                actual_rated = float(fil["actual_rated"])
+                author = self.vesion_system.find_author_by_sha(file_d["sha"])
+                rtime = self.vesion_system.find_time_by_sha(file_d["sha"])
+                actual_rated = float(file_d["actual_rated"])
                 self.rating[author]["pylint"].append(actual_rated)
                 self.rating[author]["pylint_time"].append(rtime)
                 self.rating[author]["files"].append(file_name)
                 # because we direction is from last to first must take prev
                 # with actual
-                if fil["actual_rated"] < fil["previous_rated"]:
+                if file_d["actual_rated"] < file_d["previous_rated"]:
                     self.rating[author]["pylint-"] += 1
-                elif fil["actual_rated"] > fil["previous_rated"]:
+                elif file_d["actual_rated"] > file_d["previous_rated"]:
                     self.rating[author]["pylint+"] += 1
         except KeyError:
             LOGGER.warning(r"not in pylint_rating for {0}".format(file_name))
@@ -339,6 +366,8 @@ class QMetric(object):
             for inx in self.files.keys():
                 if len(self.files[inx]) <= 0:
                     continue
+                if inx.find(".py") < 0:
+                    continue
                 group = self.files[inx].groupby(["author", "line"])
                 for value in group.groups.itervalues():
                     if len(value) > 1:
@@ -358,8 +387,6 @@ class QMetric(object):
             i change rating of commit in DataFrame for file in dictionary of
             files.
             """
-            if fname.find(".py") < 0:
-                return
             LOGGER.info("Start of evaulation line in {0} file {1}".format
                         (self.files[fname].ix[index[0]]["line"], fname))
             df_file = self.files[fname]
@@ -376,39 +403,14 @@ class QMetric(object):
                 except ZeroDivisionError:
                     smod, fmod = 0, 0
                 smod += fmod
-                ratings, smod = self.__calc_rating(rang, smod, percent)
+                ratings, smod = calc_rating(rang, smod, percent)
                 self.files[fname].ix[index[idx + 1], "modification"] = smod
                 self.files[fname].ix[index[idx + 1], "rating"] = ratings
             LOGGER.debug(r"End of evaluation of ratings for every commit.")
 
-        def __calc_rating(self, rang_btwn, modif_lines, percent):
-            """
-            This method rate the commit on based set arguments.
-            Return calculated rating and inicator of modification in file.
-            """
-            if rang_btwn <= 25 and rang_btwn > 1 and modif_lines < percent:
-                rating = 0
-            elif rang_btwn > 25 and rang_btwn <= 35 and modif_lines < percent:
-                rating = 1
-            elif rang_btwn > 35 and rang_btwn <= 45 and modif_lines < percent:
-                rating = 2
-            elif rang_btwn > 45 and rang_btwn <= 55 and modif_lines < percent:
-                rating = 3
-            else:
-                rating = 4
-            if modif_lines >= percent:
-                modif_lines = 0.0
-            return (rating, modif_lines)
-
         def return_repository_path(self):
             """ This method returns path to tmp repository"""
             return self.__tmp_repository
-
-        def __get_data_from_df(self, what, data_frame, index="name"):
-            """ This method just walk trought nested data frame and fill
-            new data frame.
-            """
-            self._data_frame[what] = [idx[index] for idx in data_frame[what]]
 
         def __fill_data(self, branch):
             """ This method fill and parsing data to DataFrame."""
@@ -465,7 +467,7 @@ class QMetric(object):
                         continue
                     if line.startswith('@@ '):
                         _, old_nr, new_nr, _ = line.split(' ', 3)
-                        line_num = int(old_nr.split(',')[0])
+                        line_num = abs(int(old_nr.split(',')[0]))
                         continue
                     if line[0] == ' ':
                         line_num += 1
