@@ -16,15 +16,30 @@ from argparse import ArgumentParser
 import tempfile
 import time
 from subprocess import Popen, PIPE
+import pylab
 
 TMP_DIR = tempfile.gettempdir()
 
 LOG_FORMAT = "%(name)s:%(asctime)s:%(message)s"
-logging.basicConfig(format=LOG_FORMAT, filename="log.log")
+logging.basicConfig(format=LOG_FORMAT, filename="logfile.log")
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 GIT_URL = r'(git://github.com/|https://github.com/|git@github.com:)(.*)'
-
+def pylab_graph(ratings):
+    """
+    This function prints graphs with library pylab. 
+    """
+    for idx, author in enumerate(ratings):
+        pylab.title("Author: {0}".format(author))
+        pylab.ylim([0, 11])
+        pylab.subplot(211)
+        pylab.plot(ratings[author]["pylint"], color="red")
+        pylab.subplot(212)
+        pylab.plot(ratings[author]["avg_comm_rating"], color="blue")
+        #pylab.show()        
+        pylab.savefig(r"graph_rep_{0}".format(author))
+        pylab.clf()
+        
 def eval_pylints(filee, sha):
     """
     Call pylint for file returns dictionary of actual rating, previous
@@ -78,8 +93,8 @@ def avg(list_el):
 def generate_report(project_name, ratings):
     """ Function for generating report """
     report = "Project: %s\n" % (project_name,)
-    for author in ratings.keys():
-        report += "======================================================\n"
+    for author in ratings:
+        report += "##########################################################\n"
         report += "Authors: {0}\n".format(author)
         report += "Current average (hyphotetical + pylint) quality of project"
         report += ("is : {0} \n".format(ratings[author]["final_rating"]))
@@ -89,17 +104,18 @@ def generate_report(project_name, ratings):
         report += ("is : {0} \n".format(ratings[author]["pylint_rating"]))
         report += "======================================================\n"
         for idx, rtime in enumerate(ratings[author]["time"]):
-            report += "======================================================\n"
+            report += "////////////////////////////////////////////////////\n"
             report += "Quality of contributor/s:\n"
-            report += "Date: %s\n" % time.ctime(rtime)
-            report += "Rating: %s\n" % ratings[author]["avg_comm_rating"][idx]
+            report += "Date: {0}\n".format(time.ctime(rtime))
+            report += "Rating: {0}\n".format(ratings[author]["avg_comm_rating"][idx])
+        report += "////////////////////////////////////////////////////\n"            
         for idx, ptime in enumerate(ratings[author]["pylint_time"]):
-            report += "======================================================\n"
+            report += "-----------------------------------------------------\n"
             report += "Pylint rating:\n"
-            report += "File: %s\n" % ratings[author]["files"][idx]
-            report += "Date: %s\n" % time.ctime(ptime)
-            report += "Rating %s\n" % ratings[author]["pylint"][idx]
-        report += "======================================================\n"
+            report += "File: {0}\n".format(ratings[author]["files"][idx])
+            report += "Date: {0}\n".format(time.ctime(ptime))
+            report += "Rating {0}\n".format(ratings[author]["pylint"][idx])
+        report += "##########################################################\n"
     return report
 
 class QMetric(object):
@@ -127,13 +143,17 @@ class QMetric(object):
         self.pylint_rating = {}
         self.count_pylint_eval = 0
         self.pylint_eval = []
+        self.rating = {}        
         if allow_pylint:
             self.__get_pylint()
-        self.rating = {}
+
         self.rate()
         weights = dict(count_w=0.1, comm_w=0.1, avg_pylint_w=0.1, pylint_w=0.1)
         self.count_final_rating(weights)
-        LOGGER.info(generate_report(self.project_name, self.rating))
+        with open("result.txt", "w") as result_file:        
+            result_file.write(generate_report(self.project_name, self.rating))
+        pylab_graph(self.rating)
+        #LOGGER.info(generate_report(self.project_name, self.rating))
         #LOGGER.info("Pylint evaluation was %s" % self.count_pylint_eval)
 
     def __get_pylint(self):
@@ -162,13 +182,32 @@ class QMetric(object):
         """
         if file_name not in self.pylint_rating:
             self.pylint_rating[file_name] = []
-        for item in sha:
+        for idx, item in enumerate(sha):
             self.vesion_system.rollback(item)
             fname = self._path + "/" + file_name
             self.count_pylint_eval += 1
             LOGGER.info("Start pylint for file: {0}".format(fname))
             self.pylint_rating[file_name].append(eval_pylints(fname, item))
-
+            file_d = self.pylint_rating[file_name][idx]
+            try:
+                author = self.vesion_system.find_author_by_sha(file_d["sha"])
+                if author not in self.rating:
+                    self.__init_structure(author)
+                if any(file_d):
+                    rtime = self.vesion_system.find_time_by_sha(file_d["sha"])
+                    actual_rated = float(file_d["actual_rated"])
+                    self.rating[author]["pylint"].append(actual_rated)
+                    self.rating[author]["pylint_time"].append(rtime)
+                    self.rating[author]["files"].append(file_name)
+                    # because we direction is from last to first must take prev
+                    # with actual
+                    if file_d["actual_rated"] < file_d["previous_rated"]:
+                        self.rating[author]["pylint-"] += 1
+                    elif file_d["actual_rated"] > file_d["previous_rated"]:
+                        self.rating[author]["pylint+"] += 1    
+            except KeyError:
+                LOGGER.warning("No sha {0}".format(item))
+                    
     def rate(self):
         """
         This method rates authors. Main function in this method is iterate
@@ -194,7 +233,7 @@ class QMetric(object):
             count_line = self.files[fname].groupby(["author", "line"])
             self.__add_average_commit_counts(count_line, count)
             self.__add_another_commit_ratings(count, fname)
-            self.__add_pylint_avgs(fname)
+            #self.__add_pylint_avgs(fname)
 
     def __init_structure(self, author):
         """
@@ -269,6 +308,7 @@ class QMetric(object):
                 author = self.vesion_system.find_author_by_sha(file_d["sha"])
                 rtime = self.vesion_system.find_time_by_sha(file_d["sha"])
                 actual_rated = float(file_d["actual_rated"])
+                print author, actual_rated, file_d
                 self.rating[author]["pylint"].append(actual_rated)
                 self.rating[author]["pylint_time"].append(rtime)
                 self.rating[author]["files"].append(file_name)
@@ -280,7 +320,8 @@ class QMetric(object):
                     self.rating[author]["pylint+"] += 1
         except KeyError:
             LOGGER.warning(r"not in pylint_rating for {0}".format(file_name))
-
+        #pprint.pprint(self.rating)
+        
     def count_final_rating(self, weight):
         """Count final rating. First i get difference between positive and
         negative rating. Next i get average how many does contributor
