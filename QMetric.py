@@ -25,21 +25,32 @@ logging.basicConfig(format=LOG_FORMAT, filename="logfile.log")
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 GIT_URL = r'(git://github.com/|https://github.com/|git@github.com:)(.*)'
+
 def pylab_graph(ratings):
     """
-    This function prints graphs with library pylab. 
+    This function prints graphs with library pylab.
     """
-    for idx, author in enumerate(ratings):
+    for author in ratings:
+        if (len(ratings[author]["pylint"]) !=
+            len(ratings[author]["avg_comm_rating"])):
+            LOGGER.info("{0}: Rating for pylint and for commit is"
+                    "not match!".format(author))
+        if(len(ratings[author]["pylint"]) < 2 or
+            len(ratings[author]["avg_comm_rating"]) < 2):
+            LOGGER.info("{0}: Rating for pylint and for commit"
+                    " is lesser then 2.".format(author))
+            continue
         pylab.title("Author: {0}".format(author))
         pylab.ylim([0, 11])
         pylab.subplot(211)
         pylab.plot(ratings[author]["pylint"], color="red")
         pylab.subplot(212)
         pylab.plot(ratings[author]["avg_comm_rating"], color="blue")
-        #pylab.show()        
+        author = author.replace(" ", "_")
+        author = author.replace(".", "")
         pylab.savefig(r"graph_rep_{0}".format(author))
         pylab.clf()
-        
+
 def eval_pylints(filee, sha):
     """
     Call pylint for file returns dictionary of actual rating, previous
@@ -47,7 +58,6 @@ def eval_pylints(filee, sha):
     """
     pylint = Popen(("pylint --rcfile=/tmp/rc -f text %s" % filee).split(),
                        stdout=PIPE)
-    pylint.wait()
     output = pylint.stdout.read()
     str_rating = r"Your code has been rated at ([-\d\.]+)\/10 "
     str_rating += r"(\(previous run: ([\d\.]+)\/10.*)?"
@@ -94,28 +104,32 @@ def generate_report(project_name, ratings):
     """ Function for generating report """
     report = "Project: %s\n" % (project_name,)
     for author in ratings:
-        report += "##########################################################\n"
+        report += "#########################################################\n"
+        report += "======================================================\n"
         report += "Authors: {0}\n".format(author)
         report += "Current average (hyphotetical + pylint) quality of project"
         report += ("is : {0} \n".format(ratings[author]["final_rating"]))
         report += "Current average hyphotetical quality of project"
-        report += ("is : {0} \n".format(ratings[author]["hyphotetical_rating"]))
+        report += ("is : {0} \n"
+                            .format(ratings[author]["hyphotetical_rating"]))
         report += "Current average pylint quality of project"
         report += ("is : {0} \n".format(ratings[author]["pylint_rating"]))
         report += "======================================================\n"
         for idx, rtime in enumerate(ratings[author]["time"]):
-            report += "////////////////////////////////////////////////////\n"
+            report += "**************************************************\n"
             report += "Quality of contributor/s:\n"
             report += "Date: {0}\n".format(time.ctime(rtime))
-            report += "Rating: {0}\n".format(ratings[author]["avg_comm_rating"][idx])
-        report += "////////////////////////////////////////////////////\n"            
+            report += "Rating: {0}\n".format(
+                                    ratings[author]["avg_comm_rating"][idx])
+        report += "**************************************************\n"
         for idx, ptime in enumerate(ratings[author]["pylint_time"]):
-            report += "-----------------------------------------------------\n"
+            report += "---------------------------------------------------\n"
             report += "Pylint rating:\n"
             report += "File: {0}\n".format(ratings[author]["files"][idx])
             report += "Date: {0}\n".format(time.ctime(ptime))
             report += "Rating {0}\n".format(ratings[author]["pylint"][idx])
-        report += "##########################################################\n"
+        report += "---------------------------------------------------\n"
+    report += "#########################################################\n"
     return report
 
 class QMetric(object):
@@ -143,14 +157,13 @@ class QMetric(object):
         self.pylint_rating = {}
         self.count_pylint_eval = 0
         self.pylint_eval = []
-        self.rating = {}        
+        self.rating = {}
         if allow_pylint:
             self.__get_pylint()
-
         self.rate()
         weights = dict(count_w=0.1, comm_w=0.1, avg_pylint_w=0.1, pylint_w=0.1)
         self.count_final_rating(weights)
-        with open("result.txt", "w") as result_file:        
+        with open("result.txt", "w") as result_file:
             result_file.write(generate_report(self.project_name, self.rating))
         pylab_graph(self.rating)
         #LOGGER.info(generate_report(self.project_name, self.rating))
@@ -204,10 +217,10 @@ class QMetric(object):
                     if file_d["actual_rated"] < file_d["previous_rated"]:
                         self.rating[author]["pylint-"] += 1
                     elif file_d["actual_rated"] > file_d["previous_rated"]:
-                        self.rating[author]["pylint+"] += 1    
+                        self.rating[author]["pylint+"] += 1
             except KeyError:
                 LOGGER.warning("No sha {0}".format(item))
-                    
+
     def rate(self):
         """
         This method rates authors. Main function in this method is iterate
@@ -321,7 +334,7 @@ class QMetric(object):
         except KeyError:
             LOGGER.warning(r"not in pylint_rating for {0}".format(file_name))
         #pprint.pprint(self.rating)
-        
+
     def count_final_rating(self, weight):
         """Count final rating. First i get difference between positive and
         negative rating. Next i get average how many does contributor
@@ -331,8 +344,8 @@ class QMetric(object):
         all files. Last is total rating which is mean value from this
         variables. For each variables is set weight"""
         for author in self.rating.keys():
-            avg_pylint = (self.rating[author]["pylint+"] -\
-            self.rating[author]["pylint-"])
+            avg_pylint = self.rating[author]["pylint+"]
+            avg_pylint -= self.rating[author]["pylint-"]
             avg_pylint *= weight["pylint_w"]
             LOGGER.info("pylint+ {0} pylint- {1} diff {2}".format
                 (self.rating[author]["pylint+"], self.rating[author]["pylint-"],
@@ -350,8 +363,9 @@ class QMetric(object):
             LOGGER.info("Author: {0} \nAvg lines: {1}\nAvg commits:"
             "{2}\nFinal: {3}".format(author, avg_count, avg_comm, final))
             self.rating[author]["avg_pylint"] = avg_list_pylint * 10
-            if (final*10) < 100.0:
-                self.rating[author]["final_rating"] = final*10
+            final = (final * 10 + avg_list_pylint * 10) / 2
+            if final < 100.0:
+                self.rating[author]["final_rating"] = final
             else:
                 self.rating[author]["final_rating"] = 100.0
             LOGGER.info(r"Final after eval {0} \nFinal oylint {1}".format
@@ -609,8 +623,6 @@ if __name__ == "__main__":
     PARSER.add_argument("--branch", default="master",
                         help="set branch what we wanna evaluate,"
                         "default is master branch")
-    PARSER.add_argument("debug", action='store_true',
-                        help="enable debugging output")
     PARSER.add_argument("debug", action='store_true',
                         help="enable debugging output")
     ARGS = PARSER.parse_args()
