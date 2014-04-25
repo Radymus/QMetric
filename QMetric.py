@@ -12,11 +12,12 @@ import re
 from pandas import DataFrame
 from gittle import Gittle, InvalidRemoteUrl
 from argparse import ArgumentParser
-#import pprint
 import tempfile
 import time
 from subprocess import Popen, PIPE
 import pylab
+from collections import deque
+from operator import itemgetter
 
 TMP_DIR = tempfile.gettempdir()
 
@@ -33,8 +34,10 @@ def pylab_graph(ratings):
     for author in ratings:
         if (len(ratings[author]["pylint"]) !=
             len(ratings[author]["avg_comm_rating"])):
-            LOGGER.info("{0}: Rating for pylint and for commit is"
-                    "not match!".format(author))
+            LOGGER.info("{0}: Rating for pylint and for commit is "
+                    "not match! pylint: {1} != commits {2}"
+                    .format(author, len(ratings[author]["pylint"]),
+                            len(ratings[author]["avg_comm_rating"])))
         if(len(ratings[author]["pylint"]) < 2 or
             len(ratings[author]["avg_comm_rating"]) < 2):
             LOGGER.info("{0}: Rating for pylint and for commit"
@@ -115,19 +118,21 @@ def generate_report(project_name, ratings):
         report += "Current average pylint quality of project"
         report += ("is : {0} \n".format(ratings[author]["pylint_rating"]))
         report += "======================================================\n"
-        for idx, rtime in enumerate(ratings[author]["time"]):
+        _sorted = sorted(ratings[author]["time"], key=itemgetter("time"))        
+        for idx, rtime in enumerate(_sorted):
             report += "**************************************************\n"
             report += "Quality of contributor/s:\n"
-            report += "Date: {0}\n".format(time.ctime(rtime))
-            report += "Rating: {0}\n".format(
-                                    ratings[author]["avg_comm_rating"][idx])
+            report += "Date: {0}\n".format(time.ctime(rtime["time"]))
+            report += "Rating: {0}\n".format(rtime["rating"])
+                                    #ratings[author]["avg_comm_rating"][idx])
         report += "**************************************************\n"
-        for idx, ptime in enumerate(ratings[author]["pylint_time"]):
+        _sorted = sorted(ratings[author]["pylint_time"], key=itemgetter("time"))
+        for ptime in _sorted:
             report += "---------------------------------------------------\n"
             report += "Pylint rating:\n"
-            report += "File: {0}\n".format(ratings[author]["files"][idx])
-            report += "Date: {0}\n".format(time.ctime(ptime))
-            report += "Rating {0}\n".format(ratings[author]["pylint"][idx])
+            report += "File: {0}\n".format(ptime["files"])
+            report += "Date: {0}\n".format(time.ctime(ptime["time"]))
+            report += "Rating {0}\n".format(ptime["pylint"])
         report += "---------------------------------------------------\n"
     report += "#########################################################\n"
     return report
@@ -210,7 +215,10 @@ class QMetric(object):
                     rtime = self.vesion_system.find_time_by_sha(file_d["sha"])
                     actual_rated = float(file_d["actual_rated"])
                     self.rating[author]["pylint"].append(actual_rated)
-                    self.rating[author]["pylint_time"].append(rtime)
+                    self.rating[author]["pylint_time"].append(dict(time=rtime,
+                                                     pylint=actual_rated,
+                                                     files=file_name
+                                                     ))
                     self.rating[author]["files"].append(file_name)
                     # because we direction is from last to first must take prev
                     # with actual
@@ -262,21 +270,21 @@ class QMetric(object):
         #count commits in MMFile
         self.rating[author]["CCMMFile"] = 0
         #avg of all average of commits
-        self.rating[author]["avg_count"] = []
+        self.rating[author]["avg_count"] = deque()
         #count of all average of commits for prev avg_count
         self.rating[author]["count_all_comm"] = 0
         #mean of all rating of commits
-        self.rating[author]["avg_comm_rating"] = []
-        self.rating[author]["pylint_time"] = []
-        self.rating[author]["time"] = []
-        self.rating[author]["files"] = []
+        self.rating[author]["avg_comm_rating"] = deque()
+        self.rating[author]["pylint_time"] = deque()
+        self.rating[author]["time"] = deque()
+        self.rating[author]["files"] = deque()
         self.rating[author]["hyphotetical_rating"] = 0.0
         self.rating[author]["pylint_rating"] = 0.0
         #self.rating[author]["list_comm_ratings"] = []
         #final rating
         self.rating[author]["final_rating"] = 0.0
         #list of ratings
-        self.rating[author]["pylint"] = []
+        self.rating[author]["pylint"] = deque()
 
     def __add_average_commit_counts(self, count_line, count):
         """
@@ -304,36 +312,13 @@ class QMetric(object):
             rat = self.files[file_name]
             #self.rating[author]["commits_rating"].append()
             shas = rat[rat.author == author]["sha"].unique()
-            self.rating[author]["avg_comm_rating"] += [
-                rat[rat.sha == sha]["rating"].mean() for sha in shas]
+            #ratings = [rat[rat.sha == sha]["rating"].mean() for sha in shas]
+            #self.rating[author]["avg_comm_rating"] += ratings
+          # self.rating[author]["time"] += [
+           #     rat[rat.sha == sha]["time"].unique() for sha in shas]
             self.rating[author]["time"] += [
-                rat[rat.sha == sha]["time"].unique() for sha in shas]
-
-    def __add_pylint_avgs(self, file_name):
-        """
-        This method counts positive and negative pylint ratings, take all
-        ratings to list for averaging.
-        """
-        try:
-            for file_d in self.pylint_rating[file_name]:
-                if file_d is None:
-                    continue
-                author = self.vesion_system.find_author_by_sha(file_d["sha"])
-                rtime = self.vesion_system.find_time_by_sha(file_d["sha"])
-                actual_rated = float(file_d["actual_rated"])
-                print author, actual_rated, file_d
-                self.rating[author]["pylint"].append(actual_rated)
-                self.rating[author]["pylint_time"].append(rtime)
-                self.rating[author]["files"].append(file_name)
-                # because we direction is from last to first must take prev
-                # with actual
-                if file_d["actual_rated"] < file_d["previous_rated"]:
-                    self.rating[author]["pylint-"] += 1
-                elif file_d["actual_rated"] > file_d["previous_rated"]:
-                    self.rating[author]["pylint+"] += 1
-        except KeyError:
-            LOGGER.warning(r"not in pylint_rating for {0}".format(file_name))
-        #pprint.pprint(self.rating)
+                dict(time=rat[rat.sha == sha]["time"].unique(),
+                 rating=rat[rat.sha == sha]["rating"].mean()) for sha in shas]
 
     def count_final_rating(self, weight):
         """Count final rating. First i get difference between positive and
@@ -352,7 +337,8 @@ class QMetric(object):
                  avg_pylint))
             avg_count = avg(self.rating[author]["avg_count"]) * 100
             avg_count *= weight["count_w"]
-            avg_comm = avg(self.rating[author]["avg_comm_rating"]) * 100
+            l_comm = [item["rating"] for item in self.rating[author]["time"]]
+            avg_comm = avg(l_comm) * 100
             avg_comm *= weight["comm_w"]
             avg_comm /= 4
             self.rating[author]["hyphotetical_rating"] = avg_comm * 10
@@ -371,7 +357,6 @@ class QMetric(object):
             LOGGER.info(r"Final after eval {0} \nFinal oylint {1}".format
                 (self.rating[author]["final_rating"],
                  self.rating[author]["avg_pylint"]))
-
 
     class GitData(object):
         """ This class is for getting contribution, users and other data from
