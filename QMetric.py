@@ -78,18 +78,18 @@ def eval_pylints(filee, sha):
             sha=sha
             )
 
-def calc_rating(rang_btwn, modif_lines, percent):
+def calc_rating(modif_lines, percent):
     """
     This method rate the commit on based set arguments.
     Return calculated rating and inicator of modification in file.
     """
-    if rang_btwn <= 25 and rang_btwn > 1 and modif_lines < percent:
+    if modif_lines < 0.05:
         rating = 0
-    elif rang_btwn > 25 and rang_btwn <= 35 and modif_lines < percent:
+    elif  modif_lines < 0.15:
         rating = 1
-    elif rang_btwn > 35 and rang_btwn <= 45 and modif_lines < percent:
+    elif modif_lines < 0.25:
         rating = 2
-    elif rang_btwn > 45 and rang_btwn <= 55 and modif_lines < percent:
+    elif modif_lines < 0.35:
         rating = 3
     else:
         rating = 4
@@ -144,11 +144,11 @@ class QMetric(object):
        and return data for vizualization.
     """
 
-    def __init__(self, path, branch, allow_pylint=True):
+    def __init__(self, path, branch, specific_sha=None, allow_pylint=False):
         """Inicialization variables for path and subversion data and rc file
             for pylint.
         """
-        self.vesion_system = self.GitData(path, branch)
+        self.vesion_system = self.GitData(path, branch, specific_sha)
 
         self._path = self.vesion_system.return_repository_path()
         LOGGER.debug('Repo Path: {0}'.format(self._path))
@@ -167,7 +167,6 @@ class QMetric(object):
         self.allow_pylint = allow_pylint
         if allow_pylint:
             self.__get_pylint()
-
         self.rate()
         weights = dict(count_w=0.1, comm_w=0.1, avg_pylint_w=0.1, pylint_w=0.1)
         self.count_final_rating(weights)
@@ -254,8 +253,8 @@ class QMetric(object):
             if len(self.files[fname]) <= 0:
                 continue
             count = self.files[fname].groupby("author")
-            count_line = self.files[fname].groupby(["author", "line"])
-            self.__add_average_commit_counts(count_line, count)
+           # count_line = self.files[fname].groupby(["author", "line"])
+           # self.__add_average_commit_counts(count_line, count)
             self.__add_another_commit_ratings(count, fname)
             #self.__add_pylint_avgs(fname)
 
@@ -274,8 +273,6 @@ class QMetric(object):
         self.rating[author]["CCMMFile"] = 0
         #avg of all average of commits
         self.rating[author]["avg_count"] = deque()
-        #count of all average of commits for prev avg_count
-        self.rating[author]["count_all_comm"] = 0
         #mean of all rating of commits
         self.rating[author]["avg_comm_rating"] = deque()
         self.rating[author]["pylint_time"] = deque()
@@ -289,26 +286,14 @@ class QMetric(object):
         #list of ratings
         self.rating[author]["pylint"] = deque()
 
-    def __add_average_commit_counts(self, count_line, count):
-        """
-        This method counts all commits(for getting range between commits
-        which modified same line). Also count sum of averages how many does
-        contributor change file/ count all commits to file.
-        """
-        for author in count_line.groups.iterkeys():
-            if author[0] not in self.rating:
-                self.__init_structure(author[0])
-            self.rating[author[0]]["count_all_comm"] += 1
-            c_line = len(count_line.groups[author])
-            count_ = len(count.groups[author[0]])
-            self.rating[author[0]]["avg_count"].append(float(c_line / count_))
-
     def __add_another_commit_ratings(self, count, file_name):
         """
         This method count mean value of ratings for every commit getting
         in GitData.modificate_rating. Also search most modified file.
         """
         for author in count.groups.iterkeys():
+            if author not in self.rating:
+                self.__init_structure(author)            
             if self.rating[author]["CCMMFile"] < len(count.groups[author]):
                 self.rating[author]["CCMMFile"] = len(count.groups[author])
                 self.rating[author]["MMFile"] = file_name
@@ -363,7 +348,7 @@ class QMetric(object):
         """ This class is for getting contribution, users and other data from
         Git repository.
         """
-        def __init__(self, uri, branch="master", cached=False):
+        def __init__(self, uri, branch="master", specific_sha=None, cached=False):
             self._data_frame = None
             self.files = {}
             self.git_repository = uri
@@ -394,30 +379,14 @@ class QMetric(object):
                         " Error: {0}".format(err))
                 self.__repository = Gittle(self.__tmp_repository)
             self.__fill_data(branch)
-            #self.eval_commits()
+            self.modificate_rating()
 
-        def eval_commits(self):
-            """
-            This method walk through saved items and evaluate
-            rating commits.
-            """
-            for inx in self.files.keys():
-                if not any(self.files[inx]):
-                    continue
-                if inx.find(".py") < 0:
-                    continue
-                group = self.files[inx].groupby(["author", "line"])
-                
-                for value in group.groups.itervalues():
-                    if len(value) > 1:
-                        self.modificate_rating(inx, value)
-
-        def modificate_rating(self, fname, index, percent=0.35):
-            """In this method i will walk through every saved commited lines.
+        def modificate_rating(self, percent=0.20):
+            """In this method i will walk through every saved commit.
             This data structure is
-            sha1: line1, range, removed, num_lines, modification, rating
-            sha1->line2, range, ...
-            sha2->line1, range, ...
+            sha1: range, removed, num_lines, modification, rating
+            sha1->range, ...
+            sha2->range, ...
             etc.
             Direction is from recent commit to first. If is modification one
             same line in other commis i will evaluate how many commits was
@@ -426,27 +395,24 @@ class QMetric(object):
             i change rating of commit in DataFrame for file in dictionary of
             files.
             """
-            LOGGER.info("Start of evaulation line in {0} file {1}".format
-                        (self.files[fname].at[index[0], "line"], fname))
-            df_file = self.files[fname]
-            length = len(index)
-            for idx in range(length-1):
-                ackt_range = df_file.at[index[idx], "range"]
-                next_range = df_file.at[index[idx + 1], "range"]
-                rang = next_range - ackt_range
-                try:
-                    fmod = float(df_file.at[index[idx], "changed_lines"]) \
-                    / float(df_file.at[index[idx], "num_lines"])
-                    smod = float(df_file.at[index[idx + 1], "changed_lines"]) \
-                    / float(df_file.at[index[idx + 1], "num_lines"])
-                except ZeroDivisionError:
-                    smod, fmod = 0, 0
-                smod += fmod
-                ratings, smod = calc_rating(rang, smod, percent)
-                self.files[fname].at[index[idx + 1], "modification"] = smod
-                self.files[fname].at[index[idx + 1], "rating"] = ratings
+            for file_ in self.files.keys():
+                for index in xrange(len(self.files[file_]) - 1):
+                    df_file = self.files[file_]
+                    try:
+                        fmod = float(df_file.at[index, "changed_lines"]) \
+                        / float(df_file.at[index, "num_lines"])
+                        smod = float(df_file.at[index + 1, "changed_lines"]) \
+                        / float(df_file.at[index + 1, "num_lines"])
+                    except ZeroDivisionError:
+                        smod, fmod = 0, 0
+                    smod += fmod
+                    if smod != 0.0:
+                        print smod                        
+                        ratings, smod = calc_rating(smod, percent)
+                        self.files[file_].at[index + 1, "rating"] = ratings
+                    self.files[file_].at[index + 1, "modification"] = smod                    
             LOGGER.debug(r"End of evaluation of ratings for every commit.")
-
+            
         def return_repository_path(self):
             """ This method returns path to tmp repository"""
             return self.__tmp_repository
@@ -467,12 +433,12 @@ class QMetric(object):
                 diff = self.__repository.diff(sha)
                 if not any(diff):
                     continue
-                self._diff({"sha": sha,
+                self.__diff({"sha": sha,
                          "diff": diff,
                         "index": idx
                     })
-
-        def _diff(self, params):
+                    
+        def __diff(self, params):
             """
             This method for walk through diff from gittle. Found removed lines,
             added lines to file and make difference betwen. Thanks difference
@@ -485,43 +451,24 @@ class QMetric(object):
             """
             author = self.find_author_by_sha(params["sha"])
             rtime = self.find_time_by_sha(params["sha"])
+            removed_lines = re.compile(r'\n(\-)(.*)')
+            add_lines = re.compile(r'\n(\+)(.*)')            
             for dict_diff in params["diff"]:
                 fname = dict_diff["new"]["path"]
                 if fname == '' or fname == None:
                     fname = dict_diff["old"]["path"]
                 if fname.find(".py") < 0:
                     continue
-                lcount = self.count_lines(fname)
-                params["index"] += 1
-                lines = dict_diff["diff"].split("\n")
-                list_lines = deque()
-                line_num = 0
-                removed, added, changed = 0, 0, 0
-                for line in lines:
-                    if (len(line) <= 0 or line is None or
-                        line.startswith('diff ') or
-                        line.startswith('index ') or
-                        line.startswith('--- ') or
-                        line.startswith('+++ ')):
-                        continue
-                    if line.startswith('@@ '):
-                        _, old_nr, new_nr, _ = line.split(' ', 3)
-                        line_num = abs(int(old_nr.split(',')[0]))
-                        continue
-                    if line[0] == ' ':
-                        line_num += 1
-                        continue
-                    if line[0] == '-':
-                        removed += 1
-                        list_lines.append(line_num)
-                        line_num += 1
-                        list_lines.append(line_num)
-                        continue
-                    if line[0] == '+':
-                        added += 1
-                        continue
-                changed = added - removed
-                list_to_df = [{"line": rem_line,
+                if fname not in self.files:
+                    lcount = self.count_lines(fname)
+                else:
+                    lcount = self.files[fname]["num_lines"].values[0]
+                removed_line = removed_lines.findall(dict_diff["diff"])
+                add_line = add_lines.findall(dict_diff["diff"])
+                removed = len(removed_line) - 1
+                added = len(add_line)  - 1
+                changed = (removed - added)                
+                dict_df = [{
                             "author": author,
                             "sha": params["sha"],
                             "range": params["index"],
@@ -532,13 +479,13 @@ class QMetric(object):
                             "changed_lines": abs(changed),
                             "modification": 0.0,
                             "time": rtime
-                         }for rem_line in list_lines]
+                         }]
                 if fname in self.files:
-                    __tmp = DataFrame(list_to_df)
+                    __tmp = DataFrame(dict_df)
                     self.files[fname] = self.files[fname]\
                                           .append(__tmp, ignore_index=True)
                 else:
-                    self.files[fname] = DataFrame(list_to_df)
+                    self.files[fname] = DataFrame(dict_df)
 
         def count_lines(self, fname):
             """This method count lines in file"""
