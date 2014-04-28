@@ -32,23 +32,24 @@ def pylab_graph(ratings):
     This function prints graphs with library pylab.
     """
     for author in ratings:
+        l_comm = [item["rating"] for item in ratings[author]["time"]]          
         if (len(ratings[author]["pylint"]) !=
-            len(ratings[author]["avg_comm_rating"])):
+            len(l_comm)):
             LOGGER.info("{0}: Rating for pylint and for commit is "
                     "not match! pylint: {1} != commits {2}"
                     .format(author, len(ratings[author]["pylint"]),
-                            len(ratings[author]["avg_comm_rating"])))
-        if(len(ratings[author]["pylint"]) < 2 or
-            len(ratings[author]["avg_comm_rating"]) < 2):
-            LOGGER.info("{0}: Rating for pylint and for commit"
+                            len(l_comm)))
+                          
+        if(len(l_comm) < 2):
+            LOGGER.info("{0}: Rating for commit"
                     " is lesser then 2.".format(author))
             continue
         pylab.title("Author: {0}".format(author))
         pylab.ylim([0, 11])
         pylab.subplot(211)
-        pylab.plot(ratings[author]["pylint"], color="red")
+        pylab.plot(l_comm, color="red")
         pylab.subplot(212)
-        pylab.plot(ratings[author]["avg_comm_rating"], color="blue")
+        pylab.plot(ratings[author]["pylint"], color="blue")
         author = author.replace(" ", "_")
         author = author.replace(".", "")
         pylab.savefig(r"graph_rep_{0}".format(author))
@@ -163,8 +164,10 @@ class QMetric(object):
         self.count_pylint_eval = 0
         self.pylint_eval = []
         self.rating = {}
+        self.allow_pylint = allow_pylint
         if allow_pylint:
             self.__get_pylint()
+
         self.rate()
         weights = dict(count_w=0.1, comm_w=0.1, avg_pylint_w=0.1, pylint_w=0.1)
         self.count_final_rating(weights)
@@ -310,12 +313,7 @@ class QMetric(object):
                 self.rating[author]["CCMMFile"] = len(count.groups[author])
                 self.rating[author]["MMFile"] = file_name
             rat = self.files[file_name]
-            #self.rating[author]["commits_rating"].append()
             shas = rat[rat.author == author]["sha"].unique()
-            #ratings = [rat[rat.sha == sha]["rating"].mean() for sha in shas]
-            #self.rating[author]["avg_comm_rating"] += ratings
-          # self.rating[author]["time"] += [
-           #     rat[rat.sha == sha]["time"].unique() for sha in shas]
             self.rating[author]["time"] += [
                 dict(time=rat[rat.sha == sha]["time"].unique(),
                  rating=rat[rat.sha == sha]["rating"].mean()) for sha in shas]
@@ -349,7 +347,10 @@ class QMetric(object):
             LOGGER.info("Author: {0} \nAvg lines: {1}\nAvg commits:"
             "{2}\nFinal: {3}".format(author, avg_count, avg_comm, final))
             self.rating[author]["avg_pylint"] = avg_list_pylint * 10
-            final = (final * 10 + avg_list_pylint * 10) / 2
+            if self.allow_pylint:
+                final = (final * 10 + avg_list_pylint * 10) / 2
+            else:
+                final *= 10
             if final < 100.0:
                 self.rating[author]["final_rating"] = final
             else:
@@ -364,9 +365,7 @@ class QMetric(object):
         """
         def __init__(self, uri, branch="master", cached=False):
             self._data_frame = None
-            self._commits_dict = {}
             self.files = {}
-            self.line_counter = {}
             self.git_repository = uri
             git_url = re.compile(GIT_URL)
             _uri_safe = ''.join([c for c in uri if c.isalnum()])
@@ -376,7 +375,6 @@ class QMetric(object):
                 #dont use cached repo
                 shutil.rmtree(self.repo_path)
             is_url = git_url.search(uri)
-            self.commits = {}
             if is_url is None:
                 self.__repository = Gittle(self.git_repository)
                 self.__tmp_repository = self.git_repository
@@ -396,7 +394,7 @@ class QMetric(object):
                         " Error: {0}".format(err))
                 self.__repository = Gittle(self.__tmp_repository)
             self.__fill_data(branch)
-            self.eval_commits()
+            #self.eval_commits()
 
         def eval_commits(self):
             """
@@ -404,11 +402,12 @@ class QMetric(object):
             rating commits.
             """
             for inx in self.files.keys():
-                if len(self.files[inx]) <= 0:
+                if not any(self.files[inx]):
                     continue
                 if inx.find(".py") < 0:
                     continue
                 group = self.files[inx].groupby(["author", "line"])
+                
                 for value in group.groups.itervalues():
                     if len(value) > 1:
                         self.modificate_rating(inx, value)
@@ -428,24 +427,24 @@ class QMetric(object):
             files.
             """
             LOGGER.info("Start of evaulation line in {0} file {1}".format
-                        (self.files[fname].ix[index[0]]["line"], fname))
+                        (self.files[fname].at[index[0], "line"], fname))
             df_file = self.files[fname]
             length = len(index)
             for idx in range(length-1):
-                ackt_range = df_file.ix[index[idx]]["range"]
-                next_range = df_file.ix[index[idx + 1]]["range"]
+                ackt_range = df_file.at[index[idx], "range"]
+                next_range = df_file.at[index[idx + 1], "range"]
                 rang = next_range - ackt_range
                 try:
-                    fmod = float(df_file.ix[index[idx]]["changed_lines"]) \
-                    / float(df_file.ix[index[idx]]["num_lines"])
-                    smod = float(df_file.ix[index[idx + 1]]["changed_lines"]) \
-                    / float(df_file.ix[index[idx + 1]]["num_lines"])
+                    fmod = float(df_file.at[index[idx], "changed_lines"]) \
+                    / float(df_file.at[index[idx], "num_lines"])
+                    smod = float(df_file.at[index[idx + 1], "changed_lines"]) \
+                    / float(df_file.at[index[idx + 1], "num_lines"])
                 except ZeroDivisionError:
                     smod, fmod = 0, 0
                 smod += fmod
                 ratings, smod = calc_rating(rang, smod, percent)
-                self.files[fname].ix[index[idx + 1], "modification"] = smod
-                self.files[fname].ix[index[idx + 1], "rating"] = ratings
+                self.files[fname].at[index[idx + 1], "modification"] = smod
+                self.files[fname].at[index[idx + 1], "rating"] = ratings
             LOGGER.debug(r"End of evaluation of ratings for every commit.")
 
         def return_repository_path(self):
@@ -463,10 +462,13 @@ class QMetric(object):
                 raise Exception(r"This repository dont have {0} branch".format
                                 (branch))
             LOGGER.info(r"Go through master branch and using gittle.diff for"
-            "getting diff output")
+            "getting diff output")   
             for idx, sha in enumerate(__branch):
+                diff = self.__repository.diff(sha)
+                if not any(diff):
+                    continue
                 self._diff({"sha": sha,
-                         "diff": self.__repository.diff(sha),
+                         "diff": diff,
                         "index": idx
                     })
 
@@ -481,26 +483,23 @@ class QMetric(object):
             because in method modificate_rating i go through from recent
             to first commit.
             """
-            if len(params) <= 0:
-                return
             author = self.find_author_by_sha(params["sha"])
             rtime = self.find_time_by_sha(params["sha"])
             for dict_diff in params["diff"]:
                 fname = dict_diff["new"]["path"]
                 if fname == '' or fname == None:
                     fname = dict_diff["old"]["path"]
-                if re.search(r".*\.py", fname) is None:
+                if fname.find(".py") < 0:
                     continue
                 lcount = self.count_lines(fname)
                 params["index"] += 1
                 lines = dict_diff["diff"].split("\n")
-                list_lines = []
+                list_lines = deque()
                 line_num = 0
                 removed, added, changed = 0, 0, 0
                 for line in lines:
-                    if len(line) <= 0 or line is None:
-                        continue
-                    if (line.startswith('diff ') or
+                    if (len(line) <= 0 or line is None or
+                        line.startswith('diff ') or
                         line.startswith('index ') or
                         line.startswith('--- ') or
                         line.startswith('+++ ')):
@@ -545,14 +544,10 @@ class QMetric(object):
             """This method count lines in file"""
             if not os.path.exists(self.__tmp_repository + "/" + fname):
                 return 0
-            if fname not in self.line_counter:
-                count = 0
-                with open(self.__tmp_repository + "/" + fname) as filer:
-                    for line in filer:
-                        count += 1
-                self.line_counter[fname] = count
-            else:
-                return self.line_counter[fname]
+            count = 0
+            with open(self.__tmp_repository + "/" + fname) as filer:
+                for line in filer:
+                    count += 1
             return count
 
         def find_author_by_sha(self, sha):
