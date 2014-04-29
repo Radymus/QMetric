@@ -17,7 +17,7 @@ import time
 from subprocess import Popen, PIPE
 import pylab
 from collections import deque
-from operator import itemgetter
+
 
 TMP_DIR = tempfile.gettempdir()
 
@@ -78,18 +78,20 @@ def eval_pylints(filee, sha):
             sha=sha
             )
 
-def calc_rating(modif_lines, percent):
+def calc_rating(diff, modif_lines, percent):
     """
     This method rate the commit on based set arguments.
     Return calculated rating and inicator of modification in file.
     """
-    if modif_lines < 0.05:
+    modif_lines = abs(modif_lines)
+    diff
+    if modif_lines < 0.05 and diff < 0.7:
         rating = 0
-    elif  modif_lines < 0.15:
+    elif  modif_lines < 0.15 and diff < 0.55:
         rating = 1
-    elif modif_lines < 0.25:
+    elif modif_lines < 0.25 and diff < 0.45:
         rating = 2
-    elif modif_lines < 0.35:
+    elif modif_lines < 0.35  and diff < 0.35:
         rating = 3
     else:
         rating = 4
@@ -119,16 +121,17 @@ def generate_report(project_name, ratings):
         report += "Current average pylint quality of project"
         report += ("is : {0} \n".format(ratings[author]["pylint_rating"]))
         report += "======================================================\n"
-        _sorted = sorted(ratings[author]["time"], key=itemgetter("time"))        
-        for idx, rtime in enumerate(_sorted):
+        #_sorted = sorted(ratings[author]["time"], key=itemgetter("time"))        
+        for idx, rtime in enumerate(ratings[author]["time"]):
             report += "**************************************************\n"
             report += "Quality of contributor/s:\n"
+            report += "File: {0}\n".format(rtime["file"])
             report += "Date: {0}\n".format(time.ctime(rtime["time"]))
             report += "Rating: {0}\n".format(rtime["rating"])
                                     #ratings[author]["avg_comm_rating"][idx])
         report += "**************************************************\n"
-        _sorted = sorted(ratings[author]["pylint_time"], key=itemgetter("time"))
-        for ptime in _sorted:
+        #_sorted = sorted(ratings[author]["pylint_time"], key=itemgetter("time"))
+        for ptime in ratings[author]["pylint_time"]:
             report += "---------------------------------------------------\n"
             report += "Pylint rating:\n"
             report += "File: {0}\n".format(ptime["files"])
@@ -301,7 +304,8 @@ class QMetric(object):
             shas = rat[rat.author == author]["sha"].unique()
             self.rating[author]["time"] += [
                 dict(time=rat[rat.sha == sha]["time"].unique(),
-                 rating=rat[rat.sha == sha]["rating"].mean()) for sha in shas]
+                 rating=rat[rat.sha == sha]["rating"].mean(),
+                 file=file_name) for sha in shas]
 
     def count_final_rating(self, weight):
         """Count final rating. First i get difference between positive and
@@ -356,6 +360,7 @@ class QMetric(object):
             _uri_safe = ''.join([c for c in uri if c.isalnum()])
             self.repo_path = os.path.join(TMP_DIR, _uri_safe)
             self.__tmp_repository = self.repo_path
+            self.__commit = specific_sha
             if not cached and os.path.exists(self.repo_path):
                 #dont use cached repo
                 shutil.rmtree(self.repo_path)
@@ -395,7 +400,7 @@ class QMetric(object):
             i change rating of commit in DataFrame for file in dictionary of
             files.
             """
-            for file_ in self.files.keys():
+            for file_ in self.files.keys(): 
                 for index in xrange(len(self.files[file_]) - 1):
                     df_file = self.files[file_]
                     try:
@@ -406,11 +411,13 @@ class QMetric(object):
                     except ZeroDivisionError:
                         smod, fmod = 0, 0
                     smod += fmod
-                    if smod != 0.0:
-                        print smod                        
-                        ratings, smod = calc_rating(smod, percent)
+                    if (df_file.at[index + 1, "changed_lines"] < 
+                            df_file.at[index, "changed_lines"] ):      
+                        diff = (df_file.at[index, "changed_lines"] / 
+                                df_file.at[index + 1, "changed_lines"]) 
+                        ratings, smod = calc_rating(diff, smod, percent)                        
                         self.files[file_].at[index + 1, "rating"] = ratings
-                    self.files[file_].at[index + 1, "modification"] = smod                    
+                        self.files[file_].at[index + 1, "modification"] = smod                    
             LOGGER.debug(r"End of evaluation of ratings for every commit.")
             
         def return_repository_path(self):
@@ -429,15 +436,32 @@ class QMetric(object):
                                 (branch))
             LOGGER.info(r"Go through master branch and using gittle.diff for"
             "getting diff output")   
-            for idx, sha in enumerate(__branch):
+
+            if self.__commit is None:
+                slist = self.sort_by_date(__branch)                
+                self.diff_for_sorted_shas(slist)
+            else:                
+                after_comm = [idx for idx, found in enumerate(__branch) 
+                                        if found.find(self.__commit) >= 0]
+                after_sha = __branch[after_comm[0]:]
+                slist = self.sort_by_date(after_sha)                
+                self.diff_for_sorted_shas(slist)        
+                
+        def diff_for_sorted_shas(self, list_shas):
+            
+            for idx, sha in enumerate(list_shas):                 
                 diff = self.__repository.diff(sha)
                 if not any(diff):
                     continue
                 self.__diff({"sha": sha,
-                         "diff": diff,
-                        "index": idx
-                    })
-                    
+                             "diff": diff,
+                            "index": idx
+                        })            
+                        
+        def sort_by_date(self, branch):
+            sorted_shas = self._data_frame.sort(["time", "sha"]).sha
+            return [sha for sha in sorted_shas if sha in branch]
+            
         def __diff(self, params):
             """
             This method for walk through diff from gittle. Found removed lines,
@@ -450,7 +474,7 @@ class QMetric(object):
             to first commit.
             """
             author = self.find_author_by_sha(params["sha"])
-            rtime = self.find_time_by_sha(params["sha"])
+            rtime = self.find_time_by_sha(params["sha"])       
             removed_lines = re.compile(r'\n(\-)(.*)')
             add_lines = re.compile(r'\n(\+)(.*)')            
             for dict_diff in params["diff"]:
@@ -467,7 +491,9 @@ class QMetric(object):
                 add_line = add_lines.findall(dict_diff["diff"])
                 removed = len(removed_line) - 1
                 added = len(add_line)  - 1
-                changed = (removed - added)                
+                changed = (removed - added)     
+                if lcount <= 0:
+                    lcount = abs(changed)
                 dict_df = [{
                             "author": author,
                             "sha": params["sha"],
@@ -476,9 +502,10 @@ class QMetric(object):
                             "num_lines": lcount,
                             "removed_lines": removed,
                             "add_lines" : added,
-                            "changed_lines": abs(changed),
+                            "changed_lines": changed,
                             "modification": 0.0,
-                            "time": rtime
+                            "time": rtime,
+                            "file": fname
                          }]
                 if fname in self.files:
                     __tmp = DataFrame(dict_df)
@@ -558,4 +585,4 @@ if __name__ == "__main__":
     DEBUG = ARGS.debug
     if DEBUG:
         LOGGER.setLevel(logging.DEBUG)
-    QMETRIC = QMetric(PATH, BRANCH)
+    QMETRIC = QMetric(PATH, BRANCH)#, specific_sha="b5f4410f21370d19edf291") #, specific_sha="571388539b6579d7225aca"
