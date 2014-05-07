@@ -34,7 +34,10 @@ setup_kwargs = {
         'gittle==0.2.2',
         'pylint',
         'pandas',
-        'lxml',
+        #'lxml',
+        'scipy',
+        'matplotlib',
+        'radon'
     ],
 }
 setup(**setup_kwargs)
