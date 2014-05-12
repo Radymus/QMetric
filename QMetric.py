@@ -16,9 +16,9 @@ import tempfile
 import time
 from subprocess import Popen, PIPE
 import pylab
-from collections import deque
+import pprint
 import pickle
-from dulwich.errors import RefFormatError 
+from dulwich.errors import RefFormatError
 
 TMP_DIR = tempfile.gettempdir()
 
@@ -28,32 +28,64 @@ LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 GIT_URL = r'(git://github.com/|https://github.com/|git@github.com:)(.*)'
 
+
+class JsonStructure(object):
+    """This class is for creating JSON structure."""
+    def __init__(self):
+        self.structure = {}
+        self.structure["Name"] = str()
+        self.structure["Final Rating"] = 0
+        self.structure["Average Commits Ratings"] = 0
+        self.structure["Average Pylint"] = 0
+        self.structure["Average Software Metrics"] = 0
+        self.structure["Added lines"] = 0
+        self.structure["Removed lines"] = 0
+        self.structure["All commits"] = 0
+        self.structure["Pylint positive"] = 0
+        self.structure["Pylint negative"] = 0
+        self.structure["Most modified file"] = ""
+        self.structure["Commits to most modified file"] = 0
+        self.structure["Date"] = []
+        self.structure["Pylint"] = []
+        self.structure["Software Metrics"] = []
+        self.structure["Commit rating"] = []
+
+    def return_structure(self):
+        """This return initialized JSON structure."""
+        return self.structure
+
+
 def pylab_graph(ratings):
     """
     This function prints graphs with library pylab.
     """
+
     for author in ratings:
-        l_comm = [item["rating"] for item in ratings[author]["time"]]          
-        if (len(ratings[author]["pylint"]) !=
-            len(l_comm)):
-            LOGGER.info("{0}: Rating for pylint and for commit is "
-                    "not match! pylint: {1} != commits {2}"
-                    .format(author, len(ratings[author]["pylint"]),
-                            len(l_comm)))
-                          
-        if(len(l_comm) < 2):
-            LOGGER.info("{0}: Rating for commit"
-                    " is lesser then 2.".format(author))
-            continue
+        list_comm = []
+        list_pylint = []
+        list_metrics = []
+        list_rating_two = []
+        dict_rates = {}
+        for key in sorted(ratings[author]["time"]):
+            dict_rates[key] = ratings[author]["time"][key]
+        for rtime in dict_rates:
+            if "pylint" not in dict_rates[rtime][0]:
+                continue
+            for item in dict_rates[rtime]:
+                list_comm.append((item["rating_one"] * 100) / 4)
+                list_pylint.append(item["pylint"] * 10)
+                list_metrics.append(item["metrics"])
+                list_rating_two.append(item["rating_two"])
         pylab.title("Author: {0}".format(author))
-        #pylab.ylim([0, 11])
-        pylab.subplot(311)
-        pylab.plot(l_comm, color="red")
-        pylab.subplot(312)
-        pylab.plot(ratings[author]["pylint"], color="blue")
-        #pylab.ylim([50, 100])
-        pylab.subplot(313)
-        pylab.plot(ratings[author]["metrics"], color="green")
+        pylab.ylim([0, 101])
+        pylab.subplot(411)
+        pylab.plot(list_comm, color="red")
+        pylab.subplot(412)
+        pylab.plot(list_rating_two, color="black")
+        pylab.subplot(413)
+        pylab.plot(list_pylint, color="blue")
+        pylab.subplot(414)
+        pylab.plot(list_metrics, color="green")
         author = author.replace(" ", "_")
         author = author.replace(".", "")
         pylab.savefig(r"graph_rep_{0}".format(author))
@@ -64,8 +96,8 @@ def eval_static_metrics(filee):
     This function calls radon which evaluate static metric for file.
     """
     s_metric = Popen(("radon mi {0}".format(filee)).split(),
-                       stdout=PIPE) 
-                    
+                       stdout=PIPE)
+
     mindex = s_metric.stdout.read()
     mi__ = 0
     if re.search(r"- ([^ /])", mindex) is not None:
@@ -74,25 +106,8 @@ def eval_static_metrics(filee):
         mi__ = abs(mi__)
         mi__ /= 5
         mi__ *= 100
-    s_metric = Popen(("radon raw {0}".format(filee)).split(),
-                       stdout=PIPE) 
-    raw = s_metric.stdout.read()
-    raws = {}
-    r_patt = re.compile(r"LOC  ([\d]+)[\s]*LLOC: ([\d]+)[\s]*SLOC: ([\d]+).*")
-    if r_patt.search(raw) is not None:
-        found_raw = r_patt.search(raw)
-        print found_raw.group(1), found_raw.group(2), found_raw.group(3)
-    if re.search(r"^LOC: ([\d]+)", raw) is not None:
-        raws["LOC"] = re.search(r"^LOC: ([\d]+)", raw).group(1)
-    if re.search(r"^LLOC: ([\d]+)", raw) is not None:
-        raws["LLOC"] = re.search(r"^LOC: ([\d]+)", raw).group(1)
-    if re.search(r"^SLOC: ([\d]+)", raw) is not None:
-        raws["SLOC"] = re.search(r"^LOC: ([\d]+)", raw).group(1)
-    if re.search(r"^LOC: ([\d]+)", raw) is not None:
-        raws["LOC"] = re.search(r"^LOC: ([\d]+)", raw).group(1)
-    #print raw
     s_metric = Popen(("radon cc -a {0}".format(filee)).split(),
-                       stdout=PIPE) 
+                       stdout=PIPE)
     ccomplexity = s_metric.stdout.read()
     cc_patt = re.compile(r"Average complexity: ([A,B,C,D,E,F]).*")
     complexity = None
@@ -108,7 +123,7 @@ def eval_static_metrics(filee):
         metric = mi__
     LOGGER.info("Metric > {0}".format(metric))
     return metric
-    
+
 def eval_pylints(filee, sha):
     """
     Call pylint for file returns dictionary of actual rating, previous
@@ -133,6 +148,7 @@ def eval_pylints(filee, sha):
             metrics=metric,
             sha=sha
             )
+
 def calculate_rating(range_, threshold):
     """
     This method rate the commit on based set arguments.
@@ -150,12 +166,14 @@ def calculate_rating(range_, threshold):
         rating = 4
     return rating
 
+
 def avg(list_el):
     """This method returns average value for list"""
     if len(list_el) > 0:
         return sum(list_el) / len(list_el)
     else:
         return 0.0
+
 
 def generate_report(project_name, ratings):
     """ Function for generating report """
@@ -167,31 +185,32 @@ def generate_report(project_name, ratings):
         report += "Current average (hyphotetical + pylint) quality of project"
         report += (" is : {0} \n".format(ratings[author]["final_rating"]))
         report += "Current average hyphotetical quality of project"
-        report += (" is : {0} \n"
-                            .format(ratings[author]["hyphotetical_rating"]))
+        report += (" is : {0} \n".format(ratings[author]["hyphotetical_rating"]))
         report += "Current average pylint quality of project"
         report += (" is : {0} \n".format(ratings[author]["pylint_rating"]))
         report += "======================================================\n"
-        #_sorted = sorted(ratings[author]["time"], key=itemgetter("time"))        
-        for idx, rtime in enumerate(ratings[author]["time"]):
-            report += "**************************************************\n"
-            report += "Quality of contributor/s:\n"
-            report += "File: {0}\n".format(rtime["file"])
-            report += "Date: {0}\n".format(time.ctime(rtime["time"]))
-            report += "Rating: {0}\n".format(rtime["rating"])
-                                    #ratings[author]["avg_comm_rating"][idx])
-        report += "**************************************************\n"
-        #_sorted = sorted(ratings[author]["pylint_time"], key=itemgetter("time"))
-        for ptime in ratings[author]["pylint_time"]:
-            report += "---------------------------------------------------\n"
-            report += "Pylint rating and static software metric:\n"
-            report += "File: {0}\n".format(ptime["files"])
-            report += "Date: {0}\n".format(time.ctime(ptime["time"]))
-            report += "Rating pylint {0}\n".format(ptime["pylint"])
-            report += "Rating pylint {0}\n".format(ptime["metrics"])
+        #_sorted = sorted(ratings[author]["time"], key=itemgetter("time"))
+        for index in ratings[author]["time"]:
+            rtime = ratings[author]["time"][index]
+            for rtime in ratings[author]["time"][index]:
+                report += "***********************************************\n"
+                report += "Quality of contributor/s:\n"
+                report += "File: {0}\n".format(rtime["files"])
+                report += "Date: {0}\n".format(time.ctime(float(index)))
+                report += "Rating: {0}\n".format(rtime["rating_one"])
+                if "pylint" not in rtime:
+                    report += "*********************************************\n"
+                    continue
+                report += "-------------------------------------------------\n"
+                report += "Pylint rating and static software metric:\n"
+                report += "File: {0}\n".format(rtime["files"])
+                report += "Date: {0}\n".format(time.ctime(float(index)))
+                report += "Rating pylint {0}\n".format(rtime["pylint"])
+                report += "Rating pylint {0}\n".format(rtime["metrics"])
         report += "---------------------------------------------------\n"
     report += "#########################################################\n"
     return report
+
 
 class QMetric(object):
     """This class take like argumet path to the project and data
@@ -203,14 +222,15 @@ class QMetric(object):
         """Inicialization variables for path and subversion data and rc file
             for pylint.
         """
-        self.vesion_system = self.GitData(path, branch, specific_sha)
+        spath = path.split('/')
+        self.project_name = spath[len(spath)-1].split('.')[0]
+        self.vesion_system = self.GitData(path, branch,
+                    specific_sha=specific_sha, project_name=self.project_name)
         self._path = self.vesion_system.return_repository_path()
         LOGGER.debug('Repo Path: {0}'.format(self._path))
         self.subver_data, self.files = self.vesion_system.get_git_data()
         self.return_data = None
         #test for existion rcfile for pylint
-        spath = path.split('/')
-        self.project_name = spath[len(spath)-1].split('.')[0]
         if not os.path.exists("/tmp/rc"):
             os.system("pylint --generate-rcfile > /tmp/rc")
         self.__rc_file = os.getcwd() + "/rc"
@@ -218,34 +238,22 @@ class QMetric(object):
         self.count_pylint_eval = 0
         self.pylint_eval = []
         self.rating = {}
-        if self.project_name == "":
-            self.project_name = self._path.replace("/", "")
+        tmp_pylint = "/tmp/{0}_pylint.p".format(self.project_name)
         if os.path.exists("/tmp/{0}_pylint.p".format(self.project_name)):
             LOGGER.info("File with pylint rating exists loading data.")
-            self.rate()            
-            get_data = pickle.load(open("/tmp/%s_pylint.p" % self.project_name, "rb"))
-            for author in self.rating:
-                if author not in get_data:
-                    LOGGER.warning("For this {0} user is not pylint rating "
-                    "in file.".format(author))
-                    continue
-                self.rating[author]["pylint"] = get_data[author]["pylint"]
-                self.rating[author]["pylint_time"] = get_data[author]["pylint_time"]
-                self.rating[author]["metrics"] = get_data[author]["metrics"]
+            get_data = pickle.load(open(tmp_pylint, "rb"))
+            self.rating = get_data
         else:
             LOGGER.info("First evaluation could take lot of time must first "
                 "time evaluate with pylint.")
             self.__get_pylint()
-            pickle.dump(self.rating, 
-			open("/tmp/%s_pylint.p" % self.project_name, "wb"))      
-            self.rate()
-        weights = dict(count_w=0.1, comm_w=0.1, avg_pylint_w=0.1, pylint_w=0.1)
-        self.count_final_rating(weights)
+            pickle.dump(self.rating, open(tmp_pylint, "wb"))
+        self.rate()
         with open("result.txt", "w") as result_file:
             result_file.write(generate_report(self.project_name, self.rating))
         pylab_graph(self.rating)
-        #LOGGER.info(generate_report(self.project_name, self.rating))
-        #LOGGER.info("Pylint evaluation was %s" % self.count_pylint_eval)
+       # with open("result.json", "w") as jsonf:
+           # jsonf.write(pprint.pformat(json_data))
 
     def __get_pylint(self):
         """This method create dictionary of files in the project."""
@@ -290,7 +298,9 @@ class QMetric(object):
                     metric = float(file_d["metrics"])
                     self.rating[author]["metrics"].append(metric)
                     self.rating[author]["pylint"].append(actual_rated)
-                    self.rating[author]["pylint_time"].append(dict(time=rtime,
+                    if rtime not in self.rating[author]["time"]:
+                        self.rating[author]["time"][rtime] = []
+                    self.rating[author]["time"][rtime].append(dict(
                                                      pylint=actual_rated,
                                                      files=file_name,
                                                      metrics=metric
@@ -327,10 +337,8 @@ class QMetric(object):
             if len(self.files[fname]) <= 0:
                 continue
             count = self.files[fname].groupby("author")
-           # count_line = self.files[fname].groupby(["author", "line"])
-           # self.__add_average_commit_counts(count_line, count)
-            self.__add_another_commit_ratings(count, fname)
-            
+            self.__add_commit_ratings(count, fname)
+
     def __init_structure(self, author):
         """
         Method for creating structure for authors.
@@ -345,38 +353,59 @@ class QMetric(object):
         #count commits in MMFile
         self.rating[author]["CCMMFile"] = 0
         #avg of all average of commits
-        self.rating[author]["avg_count"] = deque()
+        self.rating[author]["commit_ratings"] = list()
         #mean of all rating of commits
-        self.rating[author]["avg_comm_rating"] = deque()
+       # self.rating[author]["avg_comm_rating"] = list()
         self.rating[author]["pylint_time"] = list()
-        self.rating[author]["time"] = deque()
-        self.rating[author]["files"] = deque()
+        self.rating[author]["time"] = dict()
+        self.rating[author]["files"] = list()
         self.rating[author]["metrics"] = list()
         self.rating[author]["hyphotetical_rating"] = 0.0
         self.rating[author]["pylint_rating"] = 0.0
+        self.rating[author]["Commit_count"] = 0
+        self.rating[author]["added"] = 0
+        self.rating[author]["removed"] = 0
         #self.rating[author]["list_comm_ratings"] = []
         #final rating
         self.rating[author]["final_rating"] = 0.0
         #list of ratings
         self.rating[author]["pylint"] = list()
 
-    def __add_another_commit_ratings(self, count, file_name):
+    def __add_commit_ratings(self, count, file_name):
         """
         This method count mean value of ratings for every commit getting
         in GitData.modificate_rating. Also search most modified file.
         """
         for author in count.groups.iterkeys():
             if author not in self.rating:
-                self.__init_structure(author)            
+                self.__init_structure(author)
+            self.rating[author]["Commit_count"] += len(count.groups[author])
+            add = self.files[file_name].groupby("author")["added_counter"].sum()
+            self.rating[author]["added"] += add[author]
+            rem = self.files[file_name].groupby(["author"])["removed_counter"].sum()
+            self.rating[author]["removed"] += rem[author]
             if self.rating[author]["CCMMFile"] < len(count.groups[author]):
                 self.rating[author]["CCMMFile"] = len(count.groups[author])
                 self.rating[author]["MMFile"] = file_name
             rat = self.files[file_name]
             shas = rat[rat.author == author]["sha"].unique()
-            self.rating[author]["time"] += [
-                dict(time=rat[rat.sha == sha]["time"].unique(),
-                 rating=rat[rat.sha == sha]["rating"].mean(),
-                 file=file_name) for sha in shas]
+            for sha in shas:
+                rtime = rat[rat.sha == sha]["time"].values[0]
+                comms = rat[rat.sha == sha]["rating_one"].mean()
+                comms_two = rat[rat.sha == sha]["rating_two"].mean()
+                self.rating[author]["commit_ratings"].append(comms)
+                if rtime in self.rating[author]["time"]:
+                    for item in self.rating[author]["time"][rtime]:
+                        if file_name == item["files"]:
+                            item["rating_one"] = comms
+                            item["rating_two"] = comms_two
+                else:
+                    self.rating[author]["time"][rtime] = []
+                    self.rating[author]["time"][rtime].append(dict(
+                                                            files=file_name,
+                                                            rating_one=comms,
+                                                            rating_two=comms_two
+                                                            ))
 
     def count_final_rating(self, weight):
         """Count final rating. First i get difference between positive and
@@ -386,6 +415,7 @@ class QMetric(object):
         to file. After that i get average value for every pylint rating for
         all files. Last is total rating which is mean value from this
         variables. For each variables is set weight"""
+        json_struct = []
         for author in self.rating.keys():
             avg_pylint = self.rating[author]["pylint+"]
             avg_pylint -= self.rating[author]["pylint-"]
@@ -393,36 +423,61 @@ class QMetric(object):
             LOGGER.info("pylint+ {0} pylint- {1} diff {2}".format
                 (self.rating[author]["pylint+"], self.rating[author]["pylint-"],
                  avg_pylint))
-            avg_count = avg(self.rating[author]["avg_count"]) * 100
-            avg_count *= weight["count_w"]
-            l_comm = [item["rating"] for item in self.rating[author]["time"]]
-            avg_comm = avg(l_comm) * 100
+            avg_comm = avg(self.rating[author]["commit_ratings"]) * 100
             avg_comm *= weight["comm_w"]
             avg_comm /= 4
+            metrics = avg(self.rating[author]["metrics"])
             self.rating[author]["hyphotetical_rating"] = avg_comm * 10
             avg_pylint = avg_pylint * weight["avg_pylint_w"]
             avg_list_pylint = avg(self.rating[author]["pylint"])
             self.rating[author]["pylint_rating"] = avg_list_pylint * 10
-            final = (avg_count + avg_comm)
-            LOGGER.info("Author: {0} \nAvg lines: {1}\nAvg commits:"
-            "{2}\nFinal: {3}".format(author, avg_count, avg_comm, final))
+            final = avg_comm
+            LOGGER.info("Author: {0} \nAvg commits:{1}"
+            "\nFinal: {2}".format(author, avg_comm, final))
             self.rating[author]["avg_pylint"] = avg_list_pylint * 10
-            final = (final * 10 + avg_list_pylint * 10) / 2
-            if final < 100.0:
-                self.rating[author]["final_rating"] = final
-            else:
-                self.rating[author]["final_rating"] = 100.0
+            final = ((final * 10) + (avg_list_pylint * 10) + metrics) / 3
             LOGGER.info(r"Final after eval {0} \nFinal oylint {1}".format
                 (self.rating[author]["final_rating"],
                  self.rating[author]["avg_pylint"]))
+            json_dict = JsonStructure().return_structure()
+            json_dict["Name"] = author
+            json_dict["Final Rating"] = final
+            json_dict["Average Pylint"] = avg_list_pylint * 10
+            json_dict["Average Software Metrics"] = metrics
+            json_dict["Average Commits Ratings"] = avg_comm * 10
+            json_dict["Added lines"] = self.rating[author]["added"]
+            json_dict["Removed lines"] = self.rating[author]["removed"]
+            json_dict["All commits"] = self.rating[author]["Commit_count"]
+            json_dict["Pylint positive"] = self.rating[author]["pylint+"]
+            json_dict["Pylint negative"] = self.rating[author]["pylint-"]
+            json_dict["Most modified file"] = self.rating[author]["MMFile"]
+            json_dict["Commits to most modified file"] = self.rating[author]["CCMMFile"]
+            json_dict["Date"] = []
+            json_dict["Pylint"] = []
+            json_dict["Software Metrics"] = []
+            json_dict["Commit rating"] = []
+            ratings = self.rating[author]["time"]
+            for date in ratings:
+                for idx in ratings[date]:
+                    if "pylint" not in idx:
+                        continue
+                    json_dict["Pylint"].append(idx["pylint"])
+                    json_dict["Date"].append(date)
+                    json_dict["Software Metrics"].append(idx["metrics"])
+                    json_dict["Commit rating"].append(idx["rating_one"])
+            json_struct.append(json_dict)
+
+        return json_struct
 
     class GitData(object):
         """ This class is for getting contribution, users and other data from
         Git repository.
         """
-        def __init__(self, uri, branch="master", specific_sha=None, cached=False):
+        def __init__(self, uri, branch="master", project_name="project",
+                         specific_sha=None, cached=False):
             self._data_frame = None
             self.files = {}
+            self.project_name = project_name
             self.git_repository = uri
             git_url = re.compile(GIT_URL)
             _uri_safe = ''.join([c for c in uri if c.isalnum()])
@@ -430,7 +485,8 @@ class QMetric(object):
             self.__tmp_repository = self.repo_path
             self.index_sha = 0
             self.size = 0
-            self.__spec_file = None
+            self.__first = True
+            self.__spec_file = []
             self.specific_sha = specific_sha
             if not cached and os.path.exists(self.repo_path):
                 #dont use cached repo
@@ -448,10 +504,10 @@ class QMetric(object):
                     Gittle.clone(self.git_repository, self.__tmp_repository)
                 except InvalidRemoteUrl as err:
                     raise Exception(r"Could not clone repository! Is not url."
-                        " Error: {0}".format(err))                      
+                        " Error: {0}".format(err))
                 except ValueError as err:
                     raise Exception(r"Is not url."
-                        " Error: {0}".format(err))                    
+                        " Error: {0}".format(err))
                 except KeyError as err:
                     raise Exception(r"Could not clone repository."
                         " Error: {0}".format(err))
@@ -459,13 +515,13 @@ class QMetric(object):
                     n_path = "/tmp/{0}".format(_uri_safe)
                     if not cached and os.path.exists(n_path):
                         #dont use cached repo
-                        shutil.rmtree(n_path)                    
+                        shutil.rmtree(n_path)
                     if branch is None:
                         os.system("git clone {0} {1}".format(uri, n_path))
                     else:
                         os.system("git clone -b {0} {1} {2}"
-                                        .format(branch, uri, n_path))                        
-                    self.__tmp_repository = n_path 
+                                        .format(branch, uri, n_path))
+                    self.__tmp_repository = n_path
                 self.__repository = Gittle(self.__tmp_repository, origin_uri=uri)
                 self.__repository.DEFAULT_BRANCH = branch
             if branch not in self.__repository.branches:
@@ -474,7 +530,7 @@ class QMetric(object):
             self.__fill_data(branch, specific_sha)
             #self.modificate_rating()
             self.eval_commit_to_future()
-            
+
         def return_repository_path(self):
             """ This method returns path to tmp repository"""
             return self.__tmp_repository
@@ -490,25 +546,25 @@ class QMetric(object):
                 raise Exception(r"This repository dont have {0} branch".format
                                 (branch))
             LOGGER.info(r"Go through master branch and using gittle.diff for"
-            "getting diff output")   
-            if specific_sha is None:       
+            "getting diff output")
+            if specific_sha is None:
                 __branch = __branch[::-1]
                 self.size = len(__branch)
                 self.diff_for_shas(__branch)
-            else:     
-                after_comm = [idx for idx, found in enumerate(__branch) 
+            else:
+                after_comm = [idx for idx, found in enumerate(__branch)
                                         if found.find(specific_sha) >= 0]
-                after_sha = __branch[after_comm[0]:] 
+                after_sha = __branch[after_comm[0]:]
                 after_sha = after_sha[::-1]
                 self.size = len(after_sha)
-                self.diff_for_shas(after_sha)        
-                
+                self.diff_for_shas(after_sha)
+
         def diff_for_shas(self, list_shas):
             """
-            Method for itereting through list od shas and call _diff 
+            Method for itereting through list od shas and call _diff
             method.
             """
-            for idx, sha in enumerate(list_shas):    
+            for idx, sha in enumerate(list_shas):
                 diff = None
                 diff = self.__repository.diff(sha)
                 if diff is None or not any(diff):
@@ -516,59 +572,72 @@ class QMetric(object):
                 self._diff({"sha": sha,
                              "diff": diff,
                             "index": idx
-                        })
-                        
-        def _diff(self, params, print_diff_=False):
+                            })
+
+        def _diff(self, params):
+            """
+            This method take diff and returns from this output added and
+            removed lines for evaluation. Also creates file with diff output.
+            """
             author = self.find_author_by_sha(params["sha"])
-            rtime = self.find_time_by_sha(params["sha"])    
+            rtime = self.find_time_by_sha(params["sha"])
             diff = params["diff"]
             for dict_diff in diff:
                 fname = dict_diff["new"]["path"]
-                if fname == '' or fname == None:
+                if fname == '' or fname is None:
                     fname = dict_diff["old"]["path"]
                 if re.search(r".*\.py", fname) is None:
                     continue
+                if re.search(r"setup.py", fname) is not None:
+                    continue
                 if self.specific_sha is not None:
-                    if self.__spec_file is None:
-                        self.__spec_file = fname
-                    elif fname != self.__spec_file:
+                    if self.__first:
+                        self.__spec_file.append(fname)
+                    elif fname not in self.__spec_file:
                         continue
-                if print_diff_:
-                    self.print_diff(diff)
                 lines = dict_diff["diff"].split("\n")
                 list_lines = []
                 list_added = []
                 list_removed = []
                 line_num, rem_line = 0, 0
                 removed, added, changed = 0, 0, 0
-                for line in lines:
-                    if len(line) <= 0 or line is None:
-                        continue
-                    if (line.startswith('diff ') or
-                        line.startswith('index ') or
-                        line.startswith('--- ') or
-                        line.startswith('+++ ')):
-                        continue
-                    if line.startswith('@@ '):
-                        _, old_nr, new_nr, _ = line.split(' ', 3)
-                        line_num = abs(int(new_nr.split(',')[0]))
-                        continue
-                    if line[0] == ' ':
-                        line_num += 1
-                        rem_line = line_num
-                        continue
-                    if line[0] == '-':
-                        removed += 1
-                        list_removed.append(rem_line)
-                        rem_line += 1
-                        
-                        continue
-                    if line[0] == '+':
-                        added += 1
-                        list_added.append(line_num)  
-                        line_num += 1 
-                        list_lines.append(line_num)
-                        continue
+                diff = "\nindex: {0}".format(params["index"])
+                diff += " sha: {0}".format(params["sha"])
+                diff += " time: {0}\n".format(time.ctime(rtime))
+                diff += "LN\tRL\tDIFF\n"
+                name_diff = "diff_{0}.txt".format(self.project_name)
+                with open(name_diff, "a") as diff_file:
+                    diff_file.write(diff)
+                    for line in lines:
+                        if len(line) <= 0 or line is None:
+                            continue
+                        if (line.startswith('diff ') or
+                            line.startswith('index ') or
+                            line.startswith('--- ') or
+                            line.startswith('+++ ')):
+                            continue
+                        if line.startswith('@@ '):
+                            _, old_nr, new_nr, _ = line.split(' ', 3)
+                            line_num = abs(int(new_nr.split(',')[0]))
+                            continue
+                        if line[0] == ' ':
+                            line_num += 1
+                            rem_line = line_num
+                            #continue
+                        if line[0] == '-':
+                            removed += 1
+                            list_removed.append(rem_line)
+                            rem_line += 1
+
+                            #continue
+                        if line[0] == '+':
+                            added += 1
+                            list_added.append(line_num)
+                            line_num += 1
+                            list_lines.append(line_num)
+                       # continue
+                        diff_file.write("{0}\t{1}\t{2}\n".format(line_num,
+                                        removed, line))
                 changed = added - abs(removed)
                 dict_df = [{
                             "added_lines": list_added,
@@ -576,115 +645,70 @@ class QMetric(object):
                             "author": author,
                             "sha": params["sha"],
                             "range": params["index"],
-                            "rating": 4,
-                           # "num_lines": 0,
+                            "rating_one": 4,
+                            "rating_two": 100,
                             "removed_counter": removed,
                             "added_counter" : added,
                             "changed_lines": changed,
                             "modification": 0.0,
-                            "time": rtime,
+                            "time": str(rtime),
                             "file": fname
-                         }]
+                            }]
                 if fname in self.files:
                     __tmp = DataFrame(dict_df)
                     self.files[fname] = self.files[fname]\
                                           .append(__tmp, ignore_index=True)
                 else:
                     self.files[fname] = DataFrame(dict_df)
-                    
-        def print_diff(self, diff):
+                self.__first = False
+
+        def eval_commit_to_future(self, thresh_fl=True, correction=True):
             """
-            Method for save fixes in string format with number of lines.
+            In this method i will walk trough every saved commit.
+            Output data structure is:
+            sha1-> range, removed_counter, added_counter, added_lines,
+                    removed_lines, rating_one, rating_two etc.
+            sha2-> range, removed_counter, added_counter, added_lines,
+                    removed_lines, rating etc.
+            etc.
+            Direction is from first commit to most recent commit.
+            There are two diffrent approachs.
             """
-            for dict_diff in diff:
-                fname = dict_diff["new"]["path"]
-                if fname == '' or fname == None:
-                    fname = dict_diff["old"]["path"]
-                if re.search(r".*\.py", fname) is None:
-                    continue
-                if self.specific_sha is not None:
-                    if self.__spec_file is None:
-                        self.__spec_file = fname
-                    elif fname != self.__spec_file:
-                        continue
-                lcount = 0
-                if fname not in self.files:
-                    lcount = self.count_lines(fname)                                  
-                lines = dict_diff["diff"].split("\n")
-                list_lines = []
-                line_num, rm = 0, 0
-                removed, added, changed = 0, 0, 0 
-                for line in lines:
-                    if len(line) <= 0 or line is None:
-                        continue
-                    if (line.startswith('diff ') or
-                        line.startswith('index ') or
-                        line.startswith('--- ') or
-                        line.startswith('+++ ')):
-                        continue
-                    if line.startswith('@@ '):
-                        _, old_nr, new_nr, _ = line.split(' ', 3)
-                        line_num = abs(int(new_nr.split(',')[0]))
-                        continue
-                    if line[0] == ' ':
-                        list_lines.append(line_num)   
-                        line_num += 1
-                        rm = line_num
-                    if line[0] == '-':
-                        rm += 1
-                        removed += 1
-                    if line[0] == '+':
-                        added += 1
-                        list_lines.append(line_num)
-                        line_num += 1
-                    LOGGER.info((line_num-1, rm-1, line))
-                changed = added - abs(removed)
-                if lcount <= 0:
-                    lcount = abs(changed)  
-                    
-        def eval_commit_to_future(self):
-            for file_name in self.files.keys(): 
+            for file_name in self.files.keys():
                 file_ = self.files[file_name]
                 size = file_.count().values[0]#get size of df
                 for row in xrange(size):
-                    #start index                
+                    #start index
                     start_index = row + 1
                     # how many commits we must iterate
                     max_size = size - start_index
                     added_lines = file_.at[row, "added_lines"]
-                    threshold = max_size * 0.1 
+                    threshold = max_size * 0.1
                     rating = 4
+                    #special case when was only removing
                     if not any(added_lines):
-                        continue #special case when was only removing
-                    for idx in xrange(start_index ,size):
-                        LOGGER.info("IDX > {0}".format(idx))
-                        LOGGER.info("ADDED {0}".format(added_lines))
-                        LOGGER.info("REMOVED {0}"
-                             .format(file_.at[idx, "removed_lines"]))
+                        continue
+                    rating_two = 100
+                    minus_val = len(added_lines)
+                    for idx in xrange(start_index, size):
                         for line in (file_.at[idx, "removed_lines"]):
                             if line in added_lines:
                                 added_lines.remove(line)
+                                rating_two -= (100 / minus_val)
                         if len(added_lines) <= 0:
                             range_ = idx - start_index
                             rating = calculate_rating(range_, threshold)
                             break
-                        if idx >= (threshold * 5):
+                        if thresh_fl and idx >= (threshold * 5):
                             rating = 4
                             break
-                        LOGGER.info("IDX > {0} RATING {1}".format(idx, rating))
-                    self.files[file_name].at[row, "rating"] = rating
-                    lines = file_.at[row, "added_counter"]
-                    lines -= file_.at[row, "removed_counter"]
-                        
-        def count_lines(self, fname):
-            """This method count lines in file"""
-            if not os.path.exists(self.__tmp_repository + "/" + fname):
-                return 0
-            count = 0
-            with open(self.__tmp_repository + "/" + fname) as filer:
-                for line in filer:
-                    count += 1
-            return count
+                    first_added = len(file_.at[row, "added_lines"])
+                    if (correction and len(added_lines) < first_added / 4):
+                        rating -= 2
+                    elif correction and len(added_lines) < first_added / 2:
+                        rating -= 1
+                    self.files[file_name].at[row, "rating_one"] = rating
+                    self.files[file_name].at[row, "rating_two"] = rating_two
 
         def find_author_by_sha(self, sha):
             """This method finds the author by sha in dataFrame. If not found
@@ -747,4 +771,6 @@ if __name__ == "__main__":
     DEBUG = ARGS.debug
     if DEBUG:
         LOGGER.setLevel(logging.DEBUG)
-    QMETRIC = QMetric(PATH, BRANCH) #, specific_sha="571388539b6579d7225aca"
+    QMETRIC = QMetric(PATH, BRANCH)
+    #-, specific_sha="3adc210377349fd1")
+    #, specific_sha="571388539b6579d7225aca"
