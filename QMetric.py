@@ -14,11 +14,14 @@ from gittle import Gittle, InvalidRemoteUrl
 from argparse import ArgumentParser
 import tempfile
 import time
+import urllib2
 from subprocess import Popen, PIPE
-import pylab
 import pprint
 import pickle
+import matplotlib.pyplot as plt
+from mpld3 import show_d3, plugins
 from dulwich.errors import RefFormatError
+from datetime import datetime
 
 TMP_DIR = tempfile.gettempdir()
 
@@ -34,7 +37,6 @@ class JsonStructure(object):
     def __init__(self):
         self.structure = {}
         self.structure["Name"] = str()
-        self.structure["Final Rating"] = 0
         self.structure["Average Commits Ratings"] = 0
         self.structure["Average Pylint"] = 0
         self.structure["Average Software Metrics"] = 0
@@ -55,7 +57,7 @@ class JsonStructure(object):
         return self.structure
 
 
-def pylab_graph(ratings):
+def pylab_graph(ratings, no_subplot=True, d3_plot=True, to_file=True, no_date=True):
     """
     This function prints graphs with library pylab.
     """
@@ -65,31 +67,66 @@ def pylab_graph(ratings):
         list_pylint = []
         list_metrics = []
         list_rating_two = []
-        dict_rates = {}
-        for key in sorted(ratings[author]["time"]):
-            dict_rates[key] = ratings[author]["time"][key]
-        for rtime in dict_rates:
-            if "pylint" not in dict_rates[rtime][0]:
+        list_dates = []
+        fig, ax = plt.subplots()
+        authorl = author.replace(" ", "_")
+        authorl = authorl.replace(".", "")        
+        plt.title("Author: {0}".format(authorl))     
+        ax.bar(range(4),[ratings[author]["hyphotetical_rating_one"],
+                ratings[author]["hyphotetical_rating_two"],
+                ratings[author]["pylint_rating"],
+                ratings[author]["radon_rating"]], align="center")
+        plt.xticks(range(4),["Prvni algoritmus","Druhy algoritmus", 
+                           "Avg pylint", "Avg Radon"], size="small")
+        plt.savefig(r"final_results_{0}".format(authorl))            
+        plt.clf()             
+        lsorted = sorted(ratings[author]["time"].keys())            
+        for rtime in lsorted:
+            if "pylint" not in ratings[author]["time"][rtime][0]:
                 continue
-            for item in dict_rates[rtime]:
+            for item in ratings[author]["time"][rtime]:
                 list_comm.append((item["rating_one"] * 100) / 4)
                 list_pylint.append(item["pylint"] * 10)
                 list_metrics.append(item["metrics"])
                 list_rating_two.append(item["rating_two"])
-        pylab.title("Author: {0}".format(author))
-        pylab.ylim([0, 101])
-        pylab.subplot(411)
-        pylab.plot(list_comm, color="red")
-        pylab.subplot(412)
-        pylab.plot(list_rating_two, color="black")
-        pylab.subplot(413)
-        pylab.plot(list_pylint, color="blue")
-        pylab.subplot(414)
-        pylab.plot(list_metrics, color="green")
-        author = author.replace(" ", "_")
-        author = author.replace(".", "")
-        pylab.savefig(r"graph_rep_{0}".format(author))
-        pylab.clf()
+                list_dates.append(datetime.fromtimestamp(rtime))
+        if no_date:
+            list_dates = [num for num in xrange(len(list_comm))]
+        ax.set_title("Author: {0}".format(author))                              
+        if len(list_comm) < 2:
+            continue
+        if no_subplot:
+            plt.ylim([-1, 101])
+            plt.plot(list_dates, list_comm, color="red")
+            plt.plot(list_dates, list_rating_two, color="black")
+            plt.plot(list_dates, list_pylint, color="blue")
+            #plt.plot(list_metrics, color="green")
+        else:
+            plt.ylim([0, 101])
+            plt.subplot(411)
+            plt.plot(list_dates, list_comm, color="red")
+            plt.subplot(412)
+            plt.plot(list_dates, list_rating_two, color="black")
+            plt.subplot(413)
+            plt.plot(list_dates, list_pylint, color="blue")
+            plt.subplot(414)
+            plt.plot(list_dates, list_metrics, color="green")
+        #plt.gcf().autofmt_xdate()
+        if to_file:
+            plt.savefig(r"graph_rep_{0}".format(authorl))            
+            #plt.clf()            
+        else:
+            plt.show()
+        if d3_plot:
+            d3_filename = 'd3.v3.min.js'
+            if not os.path.exists(d3_filename):
+                page = urllib2.urlopen('http://d3js.org/d3.v3.min.js')
+                with open(d3_filename, 'w') as f:
+                    f.write(page.read())       
+            plugins.connect(fig, plugins.Reset(), plugins.Zoom())
+            show_d3()    
+        plt.clf()   
+
 
 def eval_static_metrics(filee):
     """
@@ -149,6 +186,12 @@ def eval_pylints(filee, sha):
             sha=sha
             )
 
+
+def humanize_unixtime(unix_time):
+    rtime = datetime.fromtimestamp(int(unix_time)).strftime('%d-%m-%Y %H.%M')
+    return rtime
+
+
 def calculate_rating(range_, threshold):
     """
     This method rate the commit on based set arguments.
@@ -182,32 +225,30 @@ def generate_report(project_name, ratings):
         report += "#########################################################\n"
         report += "======================================================\n"
         report += "Authors: {0}\n".format(author)
-        report += "Current average (hyphotetical + pylint) quality of project"
-        report += (" is : {0} \n".format(ratings[author]["final_rating"]))
-        report += "Current average hyphotetical quality of project"
-        report += (" is : {0} \n".format(ratings[author]["hyphotetical_rating"]))
+        report += "Current average hyphotetical quality of project version 1:"
+        report += (" is : {0} \n".format(ratings[author]["hyphotetical_rating_one"]))
+        report += "Current average hyphotetical quality of project version 2:"
+        report += (" is : {0} \n".format(ratings[author]["hyphotetical_rating_two"]))        
         report += "Current average pylint quality of project"
         report += (" is : {0} \n".format(ratings[author]["pylint_rating"]))
+        report += "Current average radon quality of project"
+        report += (" is : {0} \n".format(ratings[author]["radon_rating"]))        
         report += "======================================================\n"
-        #_sorted = sorted(ratings[author]["time"], key=itemgetter("time"))
-        for index in ratings[author]["time"]:
-            rtime = ratings[author]["time"][index]
-            for rtime in ratings[author]["time"][index]:
-                report += "***********************************************\n"
+        lsorted = sorted(ratings[author]["time"].keys())
+        for idx, rtime in enumerate(lsorted):
+            if "pylint" not in ratings[author]["time"][rtime][0]:
+                continue
+            for item in ratings[author]["time"][rtime]:
                 report += "Quality of contributor/s:\n"
-                report += "File: {0}\n".format(rtime["files"])
-                report += "Date: {0}\n".format(time.ctime(float(index)))
-                report += "Rating: {0}\n".format(rtime["rating_one"])
-                if "pylint" not in rtime:
-                    report += "*********************************************\n"
-                    continue
+                report += "Index in graph: {0}\n".format(idx)
+                report += "Index to diff file: {0}\n".format(item["index"])
+                report += "File: {0}\n".format(item["files"])
+                report += "Date: {0}\n".format(time.ctime(rtime))
+                report += "Commit rating version 1.: %.02f\n" % (float(item["rating_one"]))
+                report += "Commit rating version 2.: %.02f\n" % (float(item["rating_two"]))
+                report += "Rating pylint %.02f\n" % float(item["pylint"])
+                report += "Rating radon %.02f\n" % float(item["metrics"])
                 report += "-------------------------------------------------\n"
-                report += "Pylint rating and static software metric:\n"
-                report += "File: {0}\n".format(rtime["files"])
-                report += "Date: {0}\n".format(time.ctime(float(index)))
-                report += "Rating pylint {0}\n".format(rtime["pylint"])
-                report += "Rating pylint {0}\n".format(rtime["metrics"])
-        report += "---------------------------------------------------\n"
     report += "#########################################################\n"
     return report
 
@@ -231,7 +272,7 @@ class QMetric(object):
         self.subver_data, self.files = self.vesion_system.get_git_data()
         self.return_data = None
         #test for existion rcfile for pylint
-        if not os.path.exists("/tmp/rc"):
+        if not os.path.exists("/tmp/rc"):        
             os.system("pylint --generate-rcfile > /tmp/rc")
         self.__rc_file = os.getcwd() + "/rc"
         self.pylint_rating = {}
@@ -239,7 +280,8 @@ class QMetric(object):
         self.pylint_eval = []
         self.rating = {}
         tmp_pylint = "/tmp/{0}_pylint.p".format(self.project_name)
-        if os.path.exists("/tmp/{0}_pylint.p".format(self.project_name)):
+        if (specific_sha is None and
+            os.path.exists("/tmp/{0}_pylint.p".format(self.project_name))):
             LOGGER.info("File with pylint rating exists loading data.")
             get_data = pickle.load(open(tmp_pylint, "rb"))
             self.rating = get_data
@@ -249,11 +291,12 @@ class QMetric(object):
             self.__get_pylint()
             pickle.dump(self.rating, open(tmp_pylint, "wb"))
         self.rate()
+        json_data = self.count_final_rating()
         with open("result.txt", "w") as result_file:
             result_file.write(generate_report(self.project_name, self.rating))
         pylab_graph(self.rating)
-       # with open("result.json", "w") as jsonf:
-           # jsonf.write(pprint.pformat(json_data))
+        with open("result.json", "w") as jsonf:
+            jsonf.write(pprint.pformat(json_data))
 
     def __get_pylint(self):
         """This method create dictionary of files in the project."""
@@ -353,21 +396,20 @@ class QMetric(object):
         #count commits in MMFile
         self.rating[author]["CCMMFile"] = 0
         #avg of all average of commits
-        self.rating[author]["commit_ratings"] = list()
+        self.rating[author]["commit_ratings_one"] = list()
+        self.rating[author]["commit_ratings_two"] = list()
         #mean of all rating of commits
-       # self.rating[author]["avg_comm_rating"] = list()
         self.rating[author]["pylint_time"] = list()
         self.rating[author]["time"] = dict()
         self.rating[author]["files"] = list()
         self.rating[author]["metrics"] = list()
-        self.rating[author]["hyphotetical_rating"] = 0.0
+        self.rating[author]["hyphotetical_rating_one"] = 0.0
+        self.rating[author]["hyphotetical_rating_two"] = 0.0
         self.rating[author]["pylint_rating"] = 0.0
+        self.rating[author]["radon_rating"] = 0.0
         self.rating[author]["Commit_count"] = 0
         self.rating[author]["added"] = 0
         self.rating[author]["removed"] = 0
-        #self.rating[author]["list_comm_ratings"] = []
-        #final rating
-        self.rating[author]["final_rating"] = 0.0
         #list of ratings
         self.rating[author]["pylint"] = list()
 
@@ -392,22 +434,26 @@ class QMetric(object):
             for sha in shas:
                 rtime = rat[rat.sha == sha]["time"].values[0]
                 comms = rat[rat.sha == sha]["rating_one"].mean()
+                index = rat[rat.sha == sha]["range"].values[0]
                 comms_two = rat[rat.sha == sha]["rating_two"].mean()
-                self.rating[author]["commit_ratings"].append(comms)
+                self.rating[author]["commit_ratings_one"].append(comms)
+                self.rating[author]["commit_ratings_two"].append(comms_two)
                 if rtime in self.rating[author]["time"]:
                     for item in self.rating[author]["time"][rtime]:
                         if file_name == item["files"]:
                             item["rating_one"] = comms
                             item["rating_two"] = comms_two
+                            item["index"] = index
                 else:
                     self.rating[author]["time"][rtime] = []
                     self.rating[author]["time"][rtime].append(dict(
                                                             files=file_name,
                                                             rating_one=comms,
-                                                            rating_two=comms_two
+                                                            rating_two=comms_two,
+                                                            index=index
                                                             ))
 
-    def count_final_rating(self, weight):
+    def count_final_rating(self):
         """Count final rating. First i get difference between positive and
         negative rating. Next i get average how many does contributor
         change file/ count all commits to file.
@@ -417,34 +463,22 @@ class QMetric(object):
         variables. For each variables is set weight"""
         json_struct = []
         for author in self.rating.keys():
-            avg_pylint = self.rating[author]["pylint+"]
-            avg_pylint -= self.rating[author]["pylint-"]
-            avg_pylint *= weight["pylint_w"]
-            LOGGER.info("pylint+ {0} pylint- {1} diff {2}".format
-                (self.rating[author]["pylint+"], self.rating[author]["pylint-"],
-                 avg_pylint))
-            avg_comm = avg(self.rating[author]["commit_ratings"]) * 100
-            avg_comm *= weight["comm_w"]
+            avg_comm = avg(self.rating[author]["commit_ratings_one"]) * 100
             avg_comm /= 4
+            avg_comm_two = avg(self.rating[author]["commit_ratings_two"])
             metrics = avg(self.rating[author]["metrics"])
-            self.rating[author]["hyphotetical_rating"] = avg_comm * 10
-            avg_pylint = avg_pylint * weight["avg_pylint_w"]
+            self.rating[author]["hyphotetical_rating_one"] = avg_comm
+            self.rating[author]["hyphotetical_rating_two"] = avg_comm_two
             avg_list_pylint = avg(self.rating[author]["pylint"])
             self.rating[author]["pylint_rating"] = avg_list_pylint * 10
-            final = avg_comm
-            LOGGER.info("Author: {0} \nAvg commits:{1}"
-            "\nFinal: {2}".format(author, avg_comm, final))
-            self.rating[author]["avg_pylint"] = avg_list_pylint * 10
-            final = ((final * 10) + (avg_list_pylint * 10) + metrics) / 3
-            LOGGER.info(r"Final after eval {0} \nFinal oylint {1}".format
-                (self.rating[author]["final_rating"],
-                 self.rating[author]["avg_pylint"]))
+            self.rating[author]["radon_rating"] = metrics
             json_dict = JsonStructure().return_structure()
             json_dict["Name"] = author
-            json_dict["Final Rating"] = final
             json_dict["Average Pylint"] = avg_list_pylint * 10
+            json_dict["Average Pylint"] = metrics
             json_dict["Average Software Metrics"] = metrics
-            json_dict["Average Commits Ratings"] = avg_comm * 10
+            json_dict["Average Commits Ratings_one"] = avg_comm
+            json_dict["Average Commits Ratings_two"] = avg_comm_two
             json_dict["Added lines"] = self.rating[author]["added"]
             json_dict["Removed lines"] = self.rating[author]["removed"]
             json_dict["All commits"] = self.rating[author]["Commit_count"]
@@ -491,6 +525,8 @@ class QMetric(object):
             if not cached and os.path.exists(self.repo_path):
                 #dont use cached repo
                 shutil.rmtree(self.repo_path)
+            if os.path.exists("diff_{0}.txt".format(self.project_name)):
+                os.remove("diff_{0}.txt".format(self.project_name))
             is_url = git_url.search(uri)
             if is_url is None:
                 self.__repository = Gittle(self.git_repository)
@@ -517,10 +553,10 @@ class QMetric(object):
                         #dont use cached repo
                         shutil.rmtree(n_path)
                     if branch is None:
-                        os.system("git clone {0} {1}".format(uri, n_path))
+                        os.system("git clone {0} {1} 2>&1".format(uri, n_path))
                     else:
-                        os.system("git clone -b {0} {1} {2}"
-                                        .format(branch, uri, n_path))
+                        os.system("git clone -b {0} {1} {2} 2>&1"
+                                        .format(branch, uri, n_path))    
                     self.__tmp_repository = n_path
                 self.__repository = Gittle(self.__tmp_repository, origin_uri=uri)
                 self.__repository.DEFAULT_BRANCH = branch
@@ -528,7 +564,6 @@ class QMetric(object):
                 LOGGER.error("Branch {0} is no in {1}".format(branch, uri))
                 raise Exception("Branch {0} is no in {1}".format(branch, uri))
             self.__fill_data(branch, specific_sha)
-            #self.modificate_rating()
             self.eval_commit_to_future()
 
         def return_repository_path(self):
@@ -586,7 +621,7 @@ class QMetric(object):
                 fname = dict_diff["new"]["path"]
                 if fname == '' or fname is None:
                     fname = dict_diff["old"]["path"]
-                if re.search(r".*\.py", fname) is None:
+                if re.search(r".*\.py$", fname) is None:
                     continue
                 if re.search(r"setup.py", fname) is not None:
                     continue
@@ -601,9 +636,10 @@ class QMetric(object):
                 list_removed = []
                 line_num, rem_line = 0, 0
                 removed, added, changed = 0, 0, 0
-                diff = "\nindex: {0}".format(params["index"])
+                #counting for graphs is from 0 no from 1
+                diff = "\nindex: {0}".format(params["index"] - 1) 
                 diff += " sha: {0}".format(params["sha"])
-                diff += " time: {0}\n".format(time.ctime(rtime))
+                diff += " date: {0}\n".format(time.ctime(rtime))
                 diff += "LN\tRL\tDIFF\n"
                 name_diff = "diff_{0}.txt".format(self.project_name)
                 with open(name_diff, "a") as diff_file:
@@ -614,30 +650,28 @@ class QMetric(object):
                         if (line.startswith('diff ') or
                             line.startswith('index ') or
                             line.startswith('--- ') or
-                            line.startswith('+++ ')):
+                            line.startswith('+++ ') or
+                            line.startswith(' new mode')):
                             continue
                         if line.startswith('@@ '):
                             _, old_nr, new_nr, _ = line.split(' ', 3)
                             line_num = abs(int(new_nr.split(',')[0]))
+                            rem_line = abs(int(old_nr.split(',')[0]))
                             continue
-                        if line[0] == ' ':
-                            line_num += 1
-                            rem_line = line_num
-                            #continue
+                        if line.startswith(' '):
+                            line_num += 1  
+                            rem_line += 1
                         if line[0] == '-':
                             removed += 1
                             list_removed.append(rem_line)
                             rem_line += 1
-
-                            #continue
                         if line[0] == '+':
                             added += 1
                             list_added.append(line_num)
-                            line_num += 1
                             list_lines.append(line_num)
-                       # continue
-                        diff_file.write("{0}\t{1}\t{2}\n".format(line_num,
-                                        removed, line))
+                            line_num += 1                            
+                        diff_file.write("{0}\t{1}\t{2}\n".format((line_num - 1),
+                                        (rem_line - 1), line))
                 changed = added - abs(removed)
                 dict_df = [{
                             "added_lines": list_added,
@@ -651,18 +685,17 @@ class QMetric(object):
                             "added_counter" : added,
                             "changed_lines": changed,
                             "modification": 0.0,
-                            "time": str(rtime),
+                            "time": rtime,
                             "file": fname
                             }]
                 if fname in self.files:
                     __tmp = DataFrame(dict_df)
-                    self.files[fname] = self.files[fname]\
-                                          .append(__tmp, ignore_index=True)
+                    self.files[fname] = self.files[fname].append(__tmp, ignore_index=True)
                 else:
                     self.files[fname] = DataFrame(dict_df)
                 self.__first = False
 
-        def eval_commit_to_future(self, thresh_fl=True, correction=True):
+        def eval_commit_to_future(self, thresh_fl=True, correction=False):
             """
             In this method i will walk trough every saved commit.
             Output data structure is:
@@ -676,7 +709,8 @@ class QMetric(object):
             """
             for file_name in self.files.keys():
                 file_ = self.files[file_name]
-                size = file_.count().values[0]#get size of df
+                #get size of df
+                size = file_.count().values[0]
                 for row in xrange(size):
                     #start index
                     start_index = row + 1
@@ -772,5 +806,3 @@ if __name__ == "__main__":
     if DEBUG:
         LOGGER.setLevel(logging.DEBUG)
     QMETRIC = QMetric(PATH, BRANCH)
-    #-, specific_sha="3adc210377349fd1")
-    #, specific_sha="571388539b6579d7225aca"
