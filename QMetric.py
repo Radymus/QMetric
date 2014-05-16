@@ -57,7 +57,7 @@ class JsonStructure(object):
         return self.structure
 
 
-def pylab_graph(ratings, no_subplot=True, d3_plot=True, to_file=True, no_date=True):
+def pylab_graph(ratings, no_subplot=True, d3_plot=False, to_file=False, no_date=True):
     """
     This function prints graphs with library pylab.
     """
@@ -70,17 +70,17 @@ def pylab_graph(ratings, no_subplot=True, d3_plot=True, to_file=True, no_date=Tr
         list_dates = []
         fig, ax = plt.subplots()
         authorl = author.replace(" ", "_")
-        authorl = authorl.replace(".", "")        
-        plt.title("Author: {0}".format(authorl))     
+        authorl = authorl.replace(".", "")
+        plt.title("Author: {0}".format(authorl))
         ax.bar(range(4),[ratings[author]["hyphotetical_rating_one"],
                 ratings[author]["hyphotetical_rating_two"],
                 ratings[author]["pylint_rating"],
                 ratings[author]["radon_rating"]], align="center")
-        plt.xticks(range(4),["Prvni algoritmus","Druhy algoritmus", 
-                           "Avg pylint", "Avg Radon"], size="small")
-        plt.savefig(r"final_results_{0}".format(authorl))            
-        plt.clf()             
-        lsorted = sorted(ratings[author]["time"].keys())            
+        plt.xticks(range(4),["Prvni algoritmus", "Druhy algoritmus",
+                           "Prumer pylint", "Prumer Radon"], size="small")
+        plt.savefig(r"final_results_{0}".format(authorl))
+        plt.clf()
+        lsorted = sorted(ratings[author]["time"].keys())
         for rtime in lsorted:
             if "pylint" not in ratings[author]["time"][rtime][0]:
                 continue
@@ -92,7 +92,7 @@ def pylab_graph(ratings, no_subplot=True, d3_plot=True, to_file=True, no_date=Tr
                 list_dates.append(datetime.fromtimestamp(rtime))
         if no_date:
             list_dates = [num for num in xrange(len(list_comm))]
-        ax.set_title("Author: {0}".format(author))                              
+        ax.set_title("Author: {0}".format(author))
         if len(list_comm) < 2:
             continue
         if no_subplot:
@@ -113,8 +113,8 @@ def pylab_graph(ratings, no_subplot=True, d3_plot=True, to_file=True, no_date=Tr
             plt.plot(list_dates, list_metrics, color="green")
         #plt.gcf().autofmt_xdate()
         if to_file:
-            plt.savefig(r"graph_rep_{0}".format(authorl))            
-            #plt.clf()            
+            plt.savefig(r"graph_rep_{0}".format(authorl))
+            #plt.clf()
         else:
             plt.show()
         if d3_plot:
@@ -122,10 +122,10 @@ def pylab_graph(ratings, no_subplot=True, d3_plot=True, to_file=True, no_date=Tr
             if not os.path.exists(d3_filename):
                 page = urllib2.urlopen('http://d3js.org/d3.v3.min.js')
                 with open(d3_filename, 'w') as f:
-                    f.write(page.read())       
+                    f.write(page.read())
             plugins.connect(fig, plugins.Reset(), plugins.Zoom())
-            show_d3()    
-        plt.clf()   
+            show_d3()
+        plt.clf()
 
 
 def eval_static_metrics(filee):
@@ -187,11 +187,6 @@ def eval_pylints(filee, sha):
             )
 
 
-def humanize_unixtime(unix_time):
-    rtime = datetime.fromtimestamp(int(unix_time)).strftime('%d-%m-%Y %H.%M')
-    return rtime
-
-
 def calculate_rating(range_, threshold):
     """
     This method rate the commit on based set arguments.
@@ -210,14 +205,6 @@ def calculate_rating(range_, threshold):
     return rating
 
 
-def avg(list_el):
-    """This method returns average value for list"""
-    if len(list_el) > 0:
-        return sum(list_el) / len(list_el)
-    else:
-        return 0.0
-
-
 def generate_report(project_name, ratings):
     """ Function for generating report """
     report = "Project: %s\n" % (project_name,)
@@ -228,14 +215,15 @@ def generate_report(project_name, ratings):
         report += "Current average hyphotetical quality of project version 1:"
         report += (" is : {0} \n".format(ratings[author]["hyphotetical_rating_one"]))
         report += "Current average hyphotetical quality of project version 2:"
-        report += (" is : {0} \n".format(ratings[author]["hyphotetical_rating_two"]))        
+        report += (" is : {0} \n".format(ratings[author]["hyphotetical_rating_two"]))
         report += "Current average pylint quality of project"
         report += (" is : {0} \n".format(ratings[author]["pylint_rating"]))
         report += "Current average radon quality of project"
-        report += (" is : {0} \n".format(ratings[author]["radon_rating"]))        
+        report += (" is : {0} \n".format(ratings[author]["radon_rating"]))
         report += "======================================================\n"
         lsorted = sorted(ratings[author]["time"].keys())
-        for idx, rtime in enumerate(lsorted):
+        idx = 0
+        for rtime in lsorted:
             if "pylint" not in ratings[author]["time"][rtime][0]:
                 continue
             for item in ratings[author]["time"][rtime]:
@@ -249,8 +237,17 @@ def generate_report(project_name, ratings):
                 report += "Rating pylint %.02f\n" % float(item["pylint"])
                 report += "Rating radon %.02f\n" % float(item["metrics"])
                 report += "-------------------------------------------------\n"
+                idx += 1
     report += "#########################################################\n"
     return report
+
+
+def avg(list_el):
+    """This method returns average value for list"""
+    if len(list_el) > 0:
+        return sum(list_el) / len(list_el)
+    else:
+        return 0.0
 
 
 class QMetric(object):
@@ -272,7 +269,7 @@ class QMetric(object):
         self.subver_data, self.files = self.vesion_system.get_git_data()
         self.return_data = None
         #test for existion rcfile for pylint
-        if not os.path.exists("/tmp/rc"):        
+        if not os.path.exists("/tmp/rc"):
             os.system("pylint --generate-rcfile > /tmp/rc")
         self.__rc_file = os.getcwd() + "/rc"
         self.pylint_rating = {}
@@ -292,10 +289,11 @@ class QMetric(object):
             pickle.dump(self.rating, open(tmp_pylint, "wb"))
         self.rate()
         json_data = self.count_final_rating()
-        with open("result.txt", "w") as result_file:
+        result_label = "result_{0}".format(self.project_name)
+        with open(result_label + ".txt" , "w") as result_file:
             result_file.write(generate_report(self.project_name, self.rating))
         pylab_graph(self.rating)
-        with open("result.json", "w") as jsonf:
+        with open(result_label + ".json", "w") as jsonf:
             jsonf.write(pprint.pformat(json_data))
 
     def __get_pylint(self):
@@ -556,7 +554,7 @@ class QMetric(object):
                         os.system("git clone {0} {1} 2>&1".format(uri, n_path))
                     else:
                         os.system("git clone -b {0} {1} {2} 2>&1"
-                                        .format(branch, uri, n_path))    
+                                        .format(branch, uri, n_path))
                     self.__tmp_repository = n_path
                 self.__repository = Gittle(self.__tmp_repository, origin_uri=uri)
                 self.__repository.DEFAULT_BRANCH = branch
@@ -587,10 +585,10 @@ class QMetric(object):
                 self.size = len(__branch)
                 self.diff_for_shas(__branch)
             else:
+                __branch = __branch[::-1]
                 after_comm = [idx for idx, found in enumerate(__branch)
                                         if found.find(specific_sha) >= 0]
                 after_sha = __branch[after_comm[0]:]
-                after_sha = after_sha[::-1]
                 self.size = len(after_sha)
                 self.diff_for_shas(after_sha)
 
@@ -634,10 +632,12 @@ class QMetric(object):
                 list_lines = []
                 list_added = []
                 list_removed = []
+                add_hashed = []
+                rem_hashed = []
                 line_num, rem_line = 0, 0
                 removed, added, changed = 0, 0, 0
                 #counting for graphs is from 0 no from 1
-                diff = "\nindex: {0}".format(params["index"] - 1) 
+                diff = "\nindex: {0}".format(params["index"])
                 diff += " sha: {0}".format(params["sha"])
                 diff += " date: {0}\n".format(time.ctime(rtime))
                 diff += "LN\tRL\tDIFF\n"
@@ -651,7 +651,7 @@ class QMetric(object):
                             line.startswith('index ') or
                             line.startswith('--- ') or
                             line.startswith('+++ ') or
-                            line.startswith(' new mode')):
+                            line.startswith('new mode')):
                             continue
                         if line.startswith('@@ '):
                             _, old_nr, new_nr, _ = line.split(' ', 3)
@@ -659,23 +659,27 @@ class QMetric(object):
                             rem_line = abs(int(old_nr.split(',')[0]))
                             continue
                         if line.startswith(' '):
-                            line_num += 1  
+                            line_num += 1
                             rem_line += 1
                         if line[0] == '-':
                             removed += 1
                             list_removed.append(rem_line)
+                            rem_hashed.append(line[1:].encode('base64', 'strict'))
                             rem_line += 1
                         if line[0] == '+':
                             added += 1
                             list_added.append(line_num)
+                            add_hashed.append(line[1:].encode('base64', 'strict'))
                             list_lines.append(line_num)
-                            line_num += 1                            
+                            line_num += 1
                         diff_file.write("{0}\t{1}\t{2}\n".format((line_num - 1),
                                         (rem_line - 1), line))
                 changed = added - abs(removed)
                 dict_df = [{
                             "added_lines": list_added,
                             "removed_lines": list_removed,
+                            "hash_added": add_hashed,
+                            "hash_removed": rem_hashed,
                             "author": author,
                             "sha": params["sha"],
                             "range": params["index"],
@@ -695,7 +699,7 @@ class QMetric(object):
                     self.files[fname] = DataFrame(dict_df)
                 self.__first = False
 
-        def eval_commit_to_future(self, thresh_fl=True, correction=False):
+        def eval_commit_to_future(self, thresh_fl=True, correction=True):
             """
             In this method i will walk trough every saved commit.
             Output data structure is:
@@ -716,7 +720,7 @@ class QMetric(object):
                     start_index = row + 1
                     # how many commits we must iterate
                     max_size = size - start_index
-                    added_lines = file_.at[row, "added_lines"]
+                    added_lines = list(file_.at[row, "hash_added"])
                     threshold = max_size * 0.1
                     rating = 4
                     #special case when was only removing
@@ -725,10 +729,11 @@ class QMetric(object):
                     rating_two = 100
                     minus_val = len(added_lines)
                     for idx in xrange(start_index, size):
-                        for line in (file_.at[idx, "removed_lines"]):
+                        for line in (file_.at[idx, "hash_removed"]):
                             if line in added_lines:
                                 added_lines.remove(line)
                                 rating_two -= (100 / minus_val)
+                                added_lines = added_lines
                         if len(added_lines) <= 0:
                             range_ = idx - start_index
                             rating = calculate_rating(range_, threshold)
@@ -736,11 +741,12 @@ class QMetric(object):
                         if thresh_fl and idx >= (threshold * 5):
                             rating = 4
                             break
-                    first_added = len(file_.at[row, "added_lines"])
-                    if (correction and len(added_lines) < first_added / 4):
-                        rating -= 2
-                    elif correction and len(added_lines) < first_added / 2:
-                        rating -= 1
+                    first_added = len(file_.at[row, "hash_added"])
+                    if correction:
+                        if (rating > 1 and len(added_lines) < first_added / 4):
+                            rating -= 2
+                        elif rating > 0 and len(added_lines) < first_added / 2:
+                            rating -= 1
                     self.files[file_name].at[row, "rating_one"] = rating
                     self.files[file_name].at[row, "rating_two"] = rating_two
 
@@ -768,8 +774,7 @@ class QMetric(object):
             try:
                 return self._data_frame.time[index].values[0]
             except IndexError:
-                LOGGER.warning("Sha {0}, {1} is not in data frame.".format
-                            (sha, index))
+                LOGGER.warning("Sha {0}, {1} is not in data frame.".format(sha, index))
             return None
 
         def rollback(self, sha):
