@@ -1,0 +1,32 @@
+QMetric
+=======
+
+**Author:** "Chris Ward" <radim.spigel@gmail.com>
+**Sources:** https://github.com/Radymus/QMetric.git
+
+For correct run of this tool is needs to be connected to internet!
+For this project is needed this libraries and programs:
+-------------------------------------------------------------------
+The instructions given below for Fedora::
+
+sudo yum install gcc git python-pip python-devel python-pandas libxml2-devel libxslt-devel
+
+The instructions given below for Ubuntu::
+
+sudo apt-get install git python-pip python-dev python-pandas libxml2-dev libxslt1-dev
+
+git clone https://github.com/Radymus/QMetric.git
+
+pridat do setup.py jinja2
+Program can be run two ways
+---------------------------------------
+First 
+For defaul run:
+python QMetric https://github.com/AuthorRepo/Repo.git
+
+Second
+for default run:
+from QMetric import QMetric, graph_authors, graph_files
+q = QMetric("https://github.com/AuthorRepo/Repo.git")
+graph_authors(q.authors)
+graph_files(q.files)

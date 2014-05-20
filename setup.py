@@ -11,7 +11,7 @@ Created on Tue Apr  1 20:30:40 2014
 
 from setuptools import setup
 
-version_string = '0.0.1'
+version_string = '0.1.0'
 
 description = (
     "This is project is for evaluate the hypothetical "
@@ -31,9 +31,11 @@ setup_kwargs = {
     'scripts': ['QMetric.py'],
     'install_requires': [
         'dulwich==0.9.4',
-        'gittle==0.2.2',
+        'gittle==0.3.0',
         'pylint',
         'pandas',
+        'jinja2',
+        'funky',
         'lxml',
         'scipy',
         'matplotlib',
