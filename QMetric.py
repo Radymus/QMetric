@@ -93,7 +93,7 @@ def get_lists_for_graphs(ratings, author):
     return (list_comm, list_pylint, list_metrics, list_rating_two, list_dates)
 
 
-def graph_authors(ratings, no_subplot, d3_plot, to_file, no_date):
+def graph_authors(ratings, no_subplot, d3_plot, to_file, no_date=True):
     """
     This function prints graphs with library matplotlib and mpld3.
     Take arguments:
@@ -114,7 +114,7 @@ def graph_authors(ratings, no_subplot, d3_plot, to_file, no_date):
         list_metrics = geted[2]
         list_rating_two = geted[3]
         list_dates = geted[4]
-        if len(list_comm) < 2:
+        if len(list_pylint) < 2:
             continue
         fig, ax = plt.subplots()
         authorl = author.replace(" ", "_")
@@ -127,6 +127,7 @@ def graph_authors(ratings, no_subplot, d3_plot, to_file, no_date):
         plt.xticks(range(4), ["First algorithm", "Second algorithm",
                            "Average pylint", "Average Radon"], size="small")
         plt.savefig(r"final_results_{0}".format(authorl))
+        fig, ax = plt.subplots()
         if no_date:
             list_dates = [num for num in xrange(len(list_comm))]
         plt.ylabel("Ratings %")
@@ -136,9 +137,8 @@ def graph_authors(ratings, no_subplot, d3_plot, to_file, no_date):
             plt.plot(list_dates, list_comm, color="red")
             plt.plot(list_dates, list_rating_two, color="black")
             plt.plot(list_dates, list_pylint, color="blue")
-            plt.plot(list_metrics, color="green")
+            plt.plot(list_dates, list_metrics, color="green")
         else:
-
             plt.ylim([0, 101])
             plt.subplot(411)
             plt.ylabel("Ratings %")
@@ -157,6 +157,7 @@ def graph_authors(ratings, no_subplot, d3_plot, to_file, no_date):
             plt.ylabel("Ratings %")
             plt.xlabel("Number of commits")
             plt.plot(list_dates, list_metrics, color="green")
+        fig.autofmt_xdate()
         if to_file:
             plt.savefig(r"graph_rep_{0}".format(authorl))
         else:
@@ -165,7 +166,6 @@ def graph_authors(ratings, no_subplot, d3_plot, to_file, no_date):
             get_d3()
             plugins.connect(fig, plugins.Reset(), plugins.Zoom())
             show_d3()
-        plt.clf()
 
 
 def eval_static_metrics(filee):
@@ -876,8 +876,9 @@ if __name__ == "__main__":
     PARSER.add_argument("--threshold", action='store_true',
                         help="enable argument threshold for hyphotetical "
                         "algorithm,")
-    PARSER.add_argument("--allow_subplots", action='store_true',
-                        help="enable argument for sublots")
+    PARSER.add_argument("--no_subplots", action='store_true',
+                        help="if enable graphs will be to one graph else"
+                        "every curve in one graph.")
     PARSER.add_argument("--graph_by_dates", action='store_false',
                         help="enable graph where is x axis set by dates.")
     PARSER.add_argument("debug", action='store_true',
@@ -891,7 +892,7 @@ if __name__ == "__main__":
     GRAPH_D3 = ARGS.no_d3
     CORRECTIONS = ARGS.corrections
     THRESHOLD = ARGS.threshold
-    SUBPLOT = ARGS.allow_subplots
+    SUBPLOT = ARGS.no_subplots
     DATES = ARGS.graph_by_dates
     if DEBUG:
         LOGGER.setLevel(logging.DEBUG)
