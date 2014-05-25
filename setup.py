@@ -32,15 +32,15 @@ setup_kwargs = {
     'install_requires': [
         'dulwich==0.9.4',
         'gittle==0.3.0',
-        'pylint',
-        'pandas',
-        'jinja2',
-        'funky',
-        'lxml',
-        'scipy',
-        'matplotlib',
-        'radon',
-        'mpld3'
+        'pylint==1.1.0',
+        'pandas==0.12.0',
+        'jinja2==2.7.1',
+        'funky==0.0.2',
+        'lxml==3.1.2',
+        'scipy==0.12.1',
+        'matplotlib==1.3.1',
+        'radon==0.5.1',
+        'mpld3==0.2'
     ],
 }
 setup(**setup_kwargs)
